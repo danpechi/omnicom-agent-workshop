@@ -1,0 +1,3 @@
+# Exclude Jupyter notebooks from app deployment — they are workshop materials,
+# not part of the served application. The bundle job runs .py notebooks directly.
+notebooks/*.ipynb

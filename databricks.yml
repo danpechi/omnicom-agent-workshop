@@ -1,0 +1,131 @@
+bundle:
+  name: omnicom_affinity_hub
+
+variables:
+  catalog:
+    description: "UC catalog for workshop data"
+    default: "users"
+  schema:
+    description: "UC schema for workshop data"
+    default: "${workspace.current_user.short_name}"
+  volume:
+    description: "UC volume for documents and eval files (user-scoped)"
+    default: "${workspace.current_user.short_name}_adtech_docs"
+  llm_endpoint:
+    description: "Databricks LLM serving endpoint"
+    default: "databricks-claude-sonnet-4-5"
+  ka_name:
+    description: "Knowledge Assistant name (user-scoped)"
+    default: "${workspace.current_user.short_name}-adtech-ka"
+  ka_endpoint:
+    description: "KA serving endpoint name (user-scoped)"
+    default: "${workspace.current_user.short_name}-adtech-ka"
+  genie_name:
+    description: "Genie Space name (user-scoped)"
+    default: "${workspace.current_user.short_name}-adtech-genie"
+  instructions_name:
+    description: "Prompt registry name for KA instructions (user-scoped)"
+    default: "${workspace.current_user.short_name}_ka_instructions"
+  experiment_name:
+    description: "MLflow experiment subdir under /Users/<current_user>/"
+    default: "${workspace.current_user.short_name}-adtech-eval"
+  qa_table:
+    description: "UC table name for sample Q&A (user-scoped)"
+    default: "${workspace.current_user.short_name}_sample_qa"
+  eval_table:
+    description: "UC table name for eval dataset (user-scoped)"
+    default: "${workspace.current_user.short_name}_eval_dataset"
+  opportunities_table:
+    description: "UC table name for opportunities structured data (user-scoped)"
+    default: "${workspace.current_user.short_name}_opportunities"
+  campaigns_table:
+    description: "UC table name for campaigns structured data (user-scoped)"
+    default: "${workspace.current_user.short_name}_campaigns"
+  app_name:
+    description: "Your personal app name — lowercase letters, numbers, and dashes only (e.g. dan-pechi). Required."
+
+resources:
+  apps:
+    omnicom_affinity_app:
+      name: "${var.app_name}"
+      description: "Omnicom Affinity Hub — Supervisor Agent over KA + Genie for adtech Q&A"
+      source_code_path: .
+      config:
+        env:
+          - name: KA_ENDPOINT_NAME
+            value: "${var.ka_endpoint}"
+          - name: GENIE_SPACE_NAME
+            value: "${var.genie_name}"
+          - name: PROMPT_REGISTRY_NAME
+            value: "${var.catalog}.${var.schema}.${var.instructions_name}"
+          - name: MLFLOW_EXPERIMENT_NAME
+            value: "/Users/${workspace.current_user.userName}/${var.experiment_name}"
+
+  jobs:
+    workshop_pipeline:
+      name: "${workspace.current_user.short_name}-adtech-ws"
+      tasks:
+        - task_key: "run_config"
+          notebook_task:
+            notebook_path: ./notebooks/00_config.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              volume: "${var.volume}"
+              llm_endpoint: "${var.llm_endpoint}"
+              ka_name: "${var.ka_name}"
+              ka_endpoint: "${var.ka_endpoint}"
+              genie_name: "${var.genie_name}"
+              instructions_name: "${var.instructions_name}"
+              experiment_name: "${var.experiment_name}"
+              qa_table: "${var.qa_table}"
+              eval_table: "${var.eval_table}"
+              opportunities_table: "${var.opportunities_table}"
+              campaigns_table: "${var.campaigns_table}"
+
+        - task_key: "setup_data"
+          depends_on:
+            - task_key: "run_config"
+          notebook_task:
+            notebook_path: ./notebooks/01_setup_data.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              volume: "${var.volume}"
+              llm_endpoint: "${var.llm_endpoint}"
+              ka_name: "${var.ka_name}"
+              ka_endpoint: "${var.ka_endpoint}"
+              genie_name: "${var.genie_name}"
+              instructions_name: "${var.instructions_name}"
+              experiment_name: "${var.experiment_name}"
+              qa_table: "${var.qa_table}"
+              eval_table: "${var.eval_table}"
+              opportunities_table: "${var.opportunities_table}"
+              campaigns_table: "${var.campaigns_table}"
+
+        - task_key: "setup_ka"
+          depends_on:
+            - task_key: "setup_data"
+          notebook_task:
+            notebook_path: ./notebooks/02a_setup_and_agent.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              volume: "${var.volume}"
+              llm_endpoint: "${var.llm_endpoint}"
+              ka_name: "${var.ka_name}"
+              ka_endpoint: "${var.ka_endpoint}"
+              genie_name: "${var.genie_name}"
+              instructions_name: "${var.instructions_name}"
+              experiment_name: "${var.experiment_name}"
+              qa_table: "${var.qa_table}"
+              eval_table: "${var.eval_table}"
+              opportunities_table: "${var.opportunities_table}"
+              campaigns_table: "${var.campaigns_table}"
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      profile: DEFAULT

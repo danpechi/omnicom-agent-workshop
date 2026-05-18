@@ -1,0 +1,27 @@
+command:
+  - "python"
+  - "-m"
+  - "uvicorn"
+  - "agent_server.start_server:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+
+env:
+  - name: MLFLOW_TRACKING_URI
+    value: "databricks"
+  - name: MLFLOW_EXPERIMENT_NAME
+    value: "/Users/PLACEHOLDER/PLACEHOLDER-adtech-eval"
+  - name: LLM_ENDPOINT_NAME
+    value: "databricks-claude-sonnet-4-5"
+  - name: PROMPT_REGISTRY_NAME
+    value: "users.PLACEHOLDER.PLACEHOLDER_ka_instructions"
+  - name: AGENT_PROMPT_VERSION
+    value: "v1"
+  - name: DOCS_PATH
+    value: "/Volumes/users/PLACEHOLDER/PLACEHOLDER_adtech_docs/docs"
+  - name: KA_ENDPOINT_NAME
+    value: "PLACEHOLDER-adtech-ka"
+  - name: GENIE_SPACE_NAME
+    value: "PLACEHOLDER-adtech-genie"
