@@ -657,12 +657,171 @@ else:
     print(f"Created Genie Space: {GENIE_NAME} (id={GENIE_SPACE_ID})")
 
 print(f"\nGenie Space ID: {GENIE_SPACE_ID}")
-print("Connect your supervisor agent by setting GENIE_SPACE_ID in app.yaml.")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Hand-crafted Q&A pairs (15 examples)
+# MAGIC ## 6. Create UC Groups (one per tenant + admin)
+# MAGIC
+# MAGIC These groups control who can query which tenant's data.
+# MAGIC Row-level security (Section 8) uses `IS_MEMBER()` against these group names.
+
+# COMMAND ----------
+
+# TENANT_GROUPS and ADMIN_GROUP are already defined in 00_config
+# (loaded via %run ./00_config above)
+
+for group_name in [*TENANT_GROUPS.values(), ADMIN_GROUP]:
+    try:
+        w.groups.create(display_name=group_name)
+        print(f"Created group: {group_name}")
+    except Exception as e:
+        if "already exists" in str(e).lower() or "conflict" in str(e).lower():
+            print(f"Group already exists: {group_name}")
+        else:
+            print(f"WARN: Could not create group {group_name}: {e}")
+
+print(f"\nGroups ready: {len(TENANT_GROUPS)} tenant groups + 1 admin group")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Create Service Principals per Tenant
+# MAGIC
+# MAGIC Each tenant gets a dedicated service principal (SP) added to its group.
+# MAGIC The Supervisor Agent resolves `tenant_id → SP application_id` and passes it
+# MAGIC as `user_context` to Genie, so Unity Catalog row filters fire against that SP identity.
+
+# COMMAND ----------
+
+tenant_sp_records = []
+
+for tenant_id, group_name in TENANT_GROUPS.items():
+    sp_display_name = f"{_short_name}-{tenant_id.lower().replace('-', '')}-sp"
+    try:
+        sp = w.service_principals.create(display_name=sp_display_name)
+        print(f"Created SP: {sp_display_name} (id={sp.id}, app_id={sp.application_id})")
+    except Exception as e:
+        if "already exists" in str(e).lower() or "conflict" in str(e).lower():
+            # Find existing SP
+            existing = next(
+                (s for s in w.service_principals.list(filter=f"displayName eq \"{sp_display_name}\"")
+                 if s.display_name == sp_display_name),
+                None
+            )
+            if existing:
+                sp = existing
+                print(f"SP already exists: {sp_display_name} (id={sp.id})")
+            else:
+                print(f"WARN: Could not create or find SP {sp_display_name}: {e}")
+                continue
+        else:
+            print(f"WARN: Could not create SP {sp_display_name}: {e}")
+            continue
+
+    # Add SP to its tenant group
+    try:
+        group_list = list(w.groups.list(filter=f"displayName eq \"{group_name}\""))
+        group = next((g for g in group_list if g.display_name == group_name), None)
+        if group:
+            w.groups.patch(
+                id=group.id,
+                operations=[{
+                    "op": "add",
+                    "path": "members",
+                    "value": [{"value": str(sp.id)}],
+                }],
+            )
+            print(f"  Added to group: {group_name}")
+        else:
+            print(f"  WARN: Group not found: {group_name}")
+    except Exception as e:
+        print(f"  WARN: Could not add SP to group: {e}")
+
+    tenant_sp_records.append({
+        "tenant_id": tenant_id,
+        "sp_id": str(sp.id),
+        "application_id": str(sp.application_id),
+        "display_name": sp_display_name,
+        "group_name": group_name,
+    })
+
+print(f"\nCreated {len(tenant_sp_records)} tenant service principals.")
+
+# Persist SP lookup table for the Supervisor Agent
+sp_df = spark.createDataFrame(tenant_sp_records)
+sp_df.write.mode("overwrite").saveAsTable(TENANT_SPS_TABLE_BT_FQN)
+print(f"Wrote table {TENANT_SPS_TABLE_FQN} ({sp_df.count()} rows)")
+sp_df.show(truncate=60)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 8. Row-Level Security on opportunities + campaigns
+# MAGIC
+# MAGIC The `tenant_row_filter` function uses `IS_MEMBER()` to check group membership.
+# MAGIC UC evaluates this at query time as the identity making the request — either a
+# MAGIC real user or the tenant service principal passed via `user_context`.
+
+# COMMAND ----------
+
+# Build the IS_MEMBER clause dynamically from TENANT_GROUPS
+_member_clauses = "\n    OR ".join([
+    f"(tenant_id = '{tid}' AND IS_MEMBER('{grp}'))"
+    for tid, grp in TENANT_GROUPS.items()
+])
+
+spark.sql(f"""
+CREATE OR REPLACE FUNCTION {CATALOG_BT}.{SCHEMA_BT}.tenant_row_filter(tenant_id STRING)
+RETURN IS_ACCOUNT_ADMIN()
+    OR IS_MEMBER('{ADMIN_GROUP}')
+    OR {_member_clauses}
+""")
+print(f"Created row filter function: {CATALOG}.{SCHEMA}.tenant_row_filter")
+
+# Apply to opportunities table
+spark.sql(f"""
+ALTER TABLE {OPPORTUNITIES_TABLE_BT_FQN}
+  SET ROW FILTER {CATALOG_BT}.{SCHEMA_BT}.tenant_row_filter ON (tenant_id)
+""")
+print(f"Applied row filter to: {OPPORTUNITIES_TABLE_FQN}")
+
+# Apply to campaigns table
+spark.sql(f"""
+ALTER TABLE {CAMPAIGNS_TABLE_BT_FQN}
+  SET ROW FILTER {CATALOG_BT}.{SCHEMA_BT}.tenant_row_filter ON (tenant_id)
+""")
+print(f"Applied row filter to: {CAMPAIGNS_TABLE_FQN}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 9. Column Masking — budget is admin-only
+# MAGIC
+# MAGIC Non-admin users (including tenant SPs) see `NULL` for the `budget` column
+# MAGIC in the campaigns table. Only `omnicom-admin` group members see real values.
+
+# COMMAND ----------
+
+spark.sql(f"""
+CREATE OR REPLACE FUNCTION {CATALOG_BT}.{SCHEMA_BT}.mask_budget(budget DOUBLE)
+RETURN CASE
+  WHEN IS_ACCOUNT_ADMIN() OR IS_MEMBER('{ADMIN_GROUP}') THEN budget
+  ELSE NULL
+END
+""")
+print(f"Created column mask: {CATALOG}.{SCHEMA}.mask_budget")
+
+spark.sql(f"""
+ALTER TABLE {CAMPAIGNS_TABLE_BT_FQN}
+  ALTER COLUMN budget SET MASK {CATALOG_BT}.{SCHEMA_BT}.mask_budget
+""")
+print(f"Applied budget mask to: {CAMPAIGNS_TABLE_FQN}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 10. Hand-crafted Q&A pairs (15 examples)
 # MAGIC
 # MAGIC Mix of KA (document-based), Genie (data-based), and mixed questions
 # MAGIC covering the full supervisor agent routing surface.
@@ -996,15 +1155,21 @@ print(f"    - {OPPORTUNITIES_TABLE_FQN} ({opp_df.count()} rows)")
 print(f"    - {CAMPAIGNS_TABLE_FQN} ({cam_df.count()} rows)")
 print(f"    - {QA_TABLE_FQN} ({len(SAMPLE_QA)} rows)")
 print(f"    - {EVAL_TABLE_FQN} ({eval_df.count()} rows)")
+print(f"    - {TENANT_SPS_TABLE_FQN} ({len(tenant_sp_records)} rows)")
 print()
 print(f"  Genie Space: {GENIE_NAME} (id={GENIE_SPACE_ID})")
+print()
+print(f"  UC Groups:   {ADMIN_GROUP} + {len(TENANT_GROUPS)} tenant groups")
+print(f"  Tenant SPs:  {len(tenant_sp_records)} service principals (one per tenant)")
+print(f"  Row Filter:  tenant_row_filter applied to opportunities + campaigns")
+print(f"  Col Mask:    mask_budget applied to campaigns.budget (admin-only)")
 print()
 print("  Files written:")
 print(f"    - {SAMPLE_QA_PATH}  ({len(SAMPLE_QA)} Q&A pairs)")
 print(f"    - {EVAL_DATASET_PATH}  ({len(eval_dataset_raw)} eval examples)")
 print()
 print("  Next steps:")
-print("    1. Run 02a_setup_and_agent to create the Knowledge Assistant")
-print("       and register V1 instructions in the MLflow Prompt Registry.")
-print(f"    2. Add GENIE_SPACE_ID={GENIE_SPACE_ID} to app.yaml for the supervisor agent.")
+print("    1. Run 02a_setup_agents to create the Knowledge Assistant.")
+print("    2. Run 02c_identity to explore identity passthrough patterns.")
+print(f"    3. Add GENIE_SPACE_ID={GENIE_SPACE_ID} to databricks.yml / app config.")
 print("=" * 65)

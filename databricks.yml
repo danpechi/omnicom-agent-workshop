@@ -23,9 +23,9 @@ variables:
   genie_name:
     description: "Genie Space name (user-scoped)"
     default: "${workspace.current_user.short_name}-adtech-genie"
-  instructions_name:
-    description: "Prompt registry name for KA instructions (user-scoped)"
-    default: "${workspace.current_user.short_name}_ka_instructions"
+  supervisor_endpoint:
+    description: "Supervisor Agent serving endpoint name (user-scoped)"
+    default: "${workspace.current_user.short_name}-adtech-supervisor"
   experiment_name:
     description: "MLflow experiment subdir under /Users/<current_user>/"
     default: "${workspace.current_user.short_name}-adtech-eval"
@@ -41,14 +41,17 @@ variables:
   campaigns_table:
     description: "UC table name for campaigns structured data (user-scoped)"
     default: "${workspace.current_user.short_name}_campaigns"
+  tenant_sps_table:
+    description: "UC table name for tenant service principal lookup (user-scoped)"
+    default: "${workspace.current_user.short_name}_tenant_sps"
   app_name:
-    description: "Your personal app name — lowercase letters, numbers, and dashes only (e.g. dan-pechi). Required."
+    description: "Your personal app name — lowercase letters, numbers, and dashes only. Required."
 
 resources:
   apps:
     omnicom_affinity_app:
       name: "${var.app_name}"
-      description: "Omnicom Affinity Hub — Supervisor Agent over KA + Genie for adtech Q&A"
+      description: "Omnicom Affinity Hub — Supervisor Agent with identity passthrough and UC governance"
       source_code_path: .
       config:
         env:
@@ -56,8 +59,10 @@ resources:
             value: "${var.ka_endpoint}"
           - name: GENIE_SPACE_NAME
             value: "${var.genie_name}"
-          - name: PROMPT_REGISTRY_NAME
-            value: "${var.catalog}.${var.schema}.${var.instructions_name}"
+          - name: SUPERVISOR_ENDPOINT
+            value: "${var.supervisor_endpoint}"
+          - name: TENANT_SPS_TABLE
+            value: "${var.catalog}.${var.schema}.${var.tenant_sps_table}"
           - name: MLFLOW_EXPERIMENT_NAME
             value: "/Users/${workspace.current_user.userName}/${var.experiment_name}"
 
@@ -76,12 +81,13 @@ resources:
               ka_name: "${var.ka_name}"
               ka_endpoint: "${var.ka_endpoint}"
               genie_name: "${var.genie_name}"
-              instructions_name: "${var.instructions_name}"
+              supervisor_endpoint: "${var.supervisor_endpoint}"
               experiment_name: "${var.experiment_name}"
               qa_table: "${var.qa_table}"
               eval_table: "${var.eval_table}"
               opportunities_table: "${var.opportunities_table}"
               campaigns_table: "${var.campaigns_table}"
+              tenant_sps_table: "${var.tenant_sps_table}"
 
         - task_key: "setup_data"
           depends_on:
@@ -96,18 +102,19 @@ resources:
               ka_name: "${var.ka_name}"
               ka_endpoint: "${var.ka_endpoint}"
               genie_name: "${var.genie_name}"
-              instructions_name: "${var.instructions_name}"
+              supervisor_endpoint: "${var.supervisor_endpoint}"
               experiment_name: "${var.experiment_name}"
               qa_table: "${var.qa_table}"
               eval_table: "${var.eval_table}"
               opportunities_table: "${var.opportunities_table}"
               campaigns_table: "${var.campaigns_table}"
+              tenant_sps_table: "${var.tenant_sps_table}"
 
-        - task_key: "setup_ka"
+        - task_key: "setup_agents"
           depends_on:
             - task_key: "setup_data"
           notebook_task:
-            notebook_path: ./notebooks/02a_setup_and_agent.py
+            notebook_path: ./notebooks/02a_setup_agents.py
             base_parameters:
               catalog: "${var.catalog}"
               schema: "${var.schema}"
@@ -116,12 +123,13 @@ resources:
               ka_name: "${var.ka_name}"
               ka_endpoint: "${var.ka_endpoint}"
               genie_name: "${var.genie_name}"
-              instructions_name: "${var.instructions_name}"
+              supervisor_endpoint: "${var.supervisor_endpoint}"
               experiment_name: "${var.experiment_name}"
               qa_table: "${var.qa_table}"
               eval_table: "${var.eval_table}"
               opportunities_table: "${var.opportunities_table}"
               campaigns_table: "${var.campaigns_table}"
+              tenant_sps_table: "${var.tenant_sps_table}"
 
 targets:
   dev:

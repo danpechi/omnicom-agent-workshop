@@ -28,7 +28,7 @@ if _EXPERIMENT_NAME:
 
 KA_ENDPOINT_NAME  = os.getenv("KA_ENDPOINT_NAME", "")
 GENIE_SPACE_NAME  = os.getenv("GENIE_SPACE_NAME", "")
-PROMPT_ALIAS      = os.getenv("AGENT_PROMPT_VERSION", "v1")
+TENANT_SPS_TABLE  = os.getenv("TENANT_SPS_TABLE", "")
 DATABRICKS_HOST   = (os.getenv("DATABRICKS_HOST") or "").rstrip("/")
 DATABRICKS_TOKEN  = os.getenv("DATABRICKS_TOKEN", "")
 LLM_ENDPOINT      = os.getenv("LLM_ENDPOINT_NAME", "databricks-claude-sonnet-4-5")
@@ -46,6 +46,26 @@ Classify the user's question as one of two types:
   information, case studies, onboarding steps, pricing, or anything answered from documents.
 
 Respond with ONLY one word: genie  or  ka"""
+
+
+def _load_tenant_sp_map() -> dict[str, str]:
+    """Load {tenant_id: application_id} from the tenant_sps UC table at startup."""
+    if not TENANT_SPS_TABLE:
+        return {}
+    try:
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        rows = spark.table(TENANT_SPS_TABLE).select("tenant_id", "application_id").collect()
+        sp_map = {row["tenant_id"]: row["application_id"] for row in rows}
+        logger.info("Loaded %d tenant SP records from %s", len(sp_map), TENANT_SPS_TABLE)
+        return sp_map
+    except Exception as e:
+        logger.warning("Could not load tenant SP map from %s: %s", TENANT_SPS_TABLE, e)
+        return {}
+
+
+# Load at startup — cached for the lifetime of the server process
+_TENANT_SP_MAP: dict[str, str] = _load_tenant_sp_map()
 
 
 def _build_trace_url(trace_id: str) -> str | None:
@@ -94,6 +114,15 @@ def _extract_question(request: ResponsesAgentRequest) -> str:
     return ""
 
 
+def _extract_tenant_id(request: ResponsesAgentRequest) -> str:
+    """Pull tenant_id from custom_inputs, e.g. {'tenant_id': 'TEN-001'}."""
+    try:
+        custom = request.custom_inputs or {}
+        return str(custom.get("tenant_id", "")).strip()
+    except Exception:
+        return ""
+
+
 def _sync_route(question: str) -> str:
     """Call the LLM to classify the question. Returns 'genie' or 'ka'."""
     from mlflow.deployments import get_deploy_client
@@ -133,8 +162,8 @@ def _resolve_genie_space_id() -> str:
     return ""
 
 
-def _sync_call_genie(question: str, space_id: str) -> str:
-    """Call the Genie Conversation API synchronously."""
+def _sync_call_genie(question: str, space_id: str, tenant_sp_app_id: str = "") -> str:
+    """Call the Genie Conversation API with optional tenant SP identity passthrough."""
     import requests
 
     if not space_id:
@@ -146,12 +175,17 @@ def _sync_call_genie(question: str, space_id: str) -> str:
         "Content-Type": "application/json",
     }
 
+    # Build request body — pass tenant SP as user_context so UC RLS fires correctly
+    body: dict[str, Any] = {"content": question}
+    if tenant_sp_app_id:
+        body["user_context"] = {"user_id": tenant_sp_app_id}
+
     # Start conversation
     try:
         start = requests.post(
             f"{host}/api/2.0/genie/spaces/{space_id}/start-conversation",
             headers=headers,
-            json={"content": question},
+            json=body,
             timeout=30,
         )
         start.raise_for_status()
@@ -206,7 +240,7 @@ def _sync_call_ka(question: str) -> str:
     return str(response)
 
 
-async def _route_and_answer(question: str) -> tuple[str, str]:
+async def _route_and_answer(question: str, tenant_id: str) -> tuple[str, str]:
     """Returns (answer, route) where route is 'ka' or 'genie'."""
     import asyncio
     loop = asyncio.get_event_loop()
@@ -215,7 +249,8 @@ async def _route_and_answer(question: str) -> tuple[str, str]:
 
     if route == "genie":
         space_id = await loop.run_in_executor(None, _resolve_genie_space_id)
-        answer = await loop.run_in_executor(None, _sync_call_genie, question, space_id)
+        tenant_sp_app_id = _TENANT_SP_MAP.get(tenant_id, "")
+        answer = await loop.run_in_executor(None, _sync_call_genie, question, space_id, tenant_sp_app_id)
     else:
         answer = await loop.run_in_executor(None, _sync_call_ka, question)
 
@@ -225,7 +260,15 @@ async def _route_and_answer(question: str) -> tuple[str, str]:
 @invoke()
 async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentResponse:
     question = _extract_question(request)
-    answer, route = await _route_and_answer(question)
+    tenant_id = _extract_tenant_id(request)
+    answer, route = await _route_and_answer(question, tenant_id)
+
+    # Tag the MLflow trace with tenant_id for audit and analytics
+    if tenant_id:
+        try:
+            mlflow.update_current_trace(tags={"tenant_id": tenant_id})
+        except Exception:
+            pass
 
     output_item = {
         "type": "message",
@@ -233,7 +276,7 @@ async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentRespon
         "content": [{"type": "output_text", "text": answer}],
     }
 
-    custom_outputs: dict[str, Any] = {"prompt_alias": PROMPT_ALIAS, "route": route}
+    custom_outputs: dict[str, Any] = {"route": route, "tenant_id": tenant_id}
     try:
         trace_id = _capture_trace_id()
         if trace_id:
@@ -254,7 +297,14 @@ async def stream_handler(
     request: ResponsesAgentRequest,
 ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
     question = _extract_question(request)
-    answer, _ = await _route_and_answer(question)
+    tenant_id = _extract_tenant_id(request)
+    answer, _ = await _route_and_answer(question, tenant_id)
+
+    if tenant_id:
+        try:
+            mlflow.update_current_trace(tags={"tenant_id": tenant_id})
+        except Exception:
+            pass
 
     yield ResponsesAgentStreamEvent.model_validate({
         "type": "response.output_item.done",
