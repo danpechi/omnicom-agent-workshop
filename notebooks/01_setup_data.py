@@ -47,7 +47,8 @@ warehouse_id = warehouses[0].id
 print(f"Using warehouse: {warehouses[0].name} ({warehouse_id})")
 
 # Check if Genie Space already exists
-existing_spaces = list(w.genie.list_spaces())
+_spaces_resp = w.genie.list_spaces()
+existing_spaces = _spaces_resp.spaces or [] if hasattr(_spaces_resp, "spaces") else list(_spaces_resp)
 existing = next((s for s in existing_spaces if s.title == GENIE_NAME), None)
 
 if existing:

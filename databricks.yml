@@ -40,7 +40,7 @@ variables:
     default: "${workspace.current_user.short_name}_tenant_sps"
   app_name:
     description: "Databricks App name (user-scoped, auto-derived from email short_name)"
-    default: "${workspace.current_user.short_name}-adtech-app"
+    default: "myname-affinity-hub"
 
 resources:
   apps:
