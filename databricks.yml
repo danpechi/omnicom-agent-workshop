@@ -11,6 +11,12 @@ variables:
   volume:
     description: "UC volume for documents and eval files (user-scoped)"
     default: "${workspace.current_user.short_name}_adtech_docs"
+  data_catalog:
+    description: "Catalog containing shared structured + unstructured data tables"
+    default: "databricks_workshop"
+  data_schema:
+    description: "Schema containing shared structured + unstructured data tables"
+    default: "sample"
   llm_endpoint:
     description: "Databricks LLM serving endpoint"
     default: "databricks-claude-sonnet-4-5"
@@ -35,12 +41,6 @@ variables:
   eval_table:
     description: "UC table name for eval dataset (user-scoped)"
     default: "${workspace.current_user.short_name}_eval_dataset"
-  opportunities_table:
-    description: "UC table name for opportunities structured data (user-scoped)"
-    default: "${workspace.current_user.short_name}_opportunities"
-  campaigns_table:
-    description: "UC table name for campaigns structured data (user-scoped)"
-    default: "${workspace.current_user.short_name}_campaigns"
   tenant_sps_table:
     description: "UC table name for tenant service principal lookup (user-scoped)"
     default: "${workspace.current_user.short_name}_tenant_sps"
@@ -85,8 +85,8 @@ resources:
               experiment_name: "${var.experiment_name}"
               qa_table: "${var.qa_table}"
               eval_table: "${var.eval_table}"
-              opportunities_table: "${var.opportunities_table}"
-              campaigns_table: "${var.campaigns_table}"
+              data_catalog: "${var.data_catalog}"
+              data_schema: "${var.data_schema}"
               tenant_sps_table: "${var.tenant_sps_table}"
 
         - task_key: "setup_data"
@@ -106,8 +106,8 @@ resources:
               experiment_name: "${var.experiment_name}"
               qa_table: "${var.qa_table}"
               eval_table: "${var.eval_table}"
-              opportunities_table: "${var.opportunities_table}"
-              campaigns_table: "${var.campaigns_table}"
+              data_catalog: "${var.data_catalog}"
+              data_schema: "${var.data_schema}"
               tenant_sps_table: "${var.tenant_sps_table}"
 
         - task_key: "setup_agents"
@@ -127,8 +127,8 @@ resources:
               experiment_name: "${var.experiment_name}"
               qa_table: "${var.qa_table}"
               eval_table: "${var.eval_table}"
-              opportunities_table: "${var.opportunities_table}"
-              campaigns_table: "${var.campaigns_table}"
+              data_catalog: "${var.data_catalog}"
+              data_schema: "${var.data_schema}"
               tenant_sps_table: "${var.tenant_sps_table}"
 
 targets:

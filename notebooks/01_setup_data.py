@@ -646,12 +646,9 @@ if existing:
 else:
     space = w.genie.create_space(
         title=GENIE_NAME,
-        description=f"Omnicom Affinity Hub — AdTech opportunity pipeline and campaign performance data for {_short_name}",
+        description=f"Omnicom Affinity Hub — AdTech structured data (campaigns, clients, financials) for {_short_name}",
         warehouse_id=warehouse_id,
-        table_identifiers=[
-            OPPORTUNITIES_TABLE_FQN,
-            CAMPAIGNS_TABLE_FQN,
-        ],
+        table_identifiers=list(DATA_TABLES.values()),
     )
     GENIE_SPACE_ID = space.space_id
     print(f"Created Genie Space: {GENIE_NAME} (id={GENIE_SPACE_ID})")

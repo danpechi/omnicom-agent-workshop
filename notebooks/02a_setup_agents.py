@@ -136,9 +136,9 @@ ks_response = w.api_client.do(
     f"/api/2.1/knowledge-assistants/{KA_ID}/knowledge-sources",
     body={
         "display_name": "Omnicom Affinity Hub Documents",
-        "description": "AT&T account overview, AH methodology, campaign playbooks, onboarding guide, case studies",
+        "description": "Unstructured adtech documents — methodology, campaign playbooks, client info, case studies",
         "source_type": "files",
-        "files": {"path": DOCS_PATH},
+        "files": {"path": UNSTRUCTURED_PATH},
     },
 )
 
