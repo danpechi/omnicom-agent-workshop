@@ -111,10 +111,9 @@ _BUILTIN_SAMPLE_QUESTIONS = [
 
 @app.get("/api/config")
 async def api_config():
-    """UI bootstraps from this — shows which prompt alias and LLM are running."""
+    """UI bootstraps from this — returns LLM endpoint, experiment, and sample questions."""
     return JSONResponse(
         {
-            "prompt_alias": _os.getenv("AGENT_PROMPT_VERSION", "v1"),
             "llm_endpoint": _os.getenv("LLM_ENDPOINT_NAME", "databricks-claude-sonnet-4-5"),
             "experiment": _os.getenv("MLFLOW_EXPERIMENT_NAME", ""),
             "samples": _load_sample_questions(),
@@ -216,9 +215,9 @@ _HOME_HTML = r"""<!DOCTYPE html>
     <div class="dot"></div>
     <span style="font-weight:800;font-size:18px;letter-spacing:-.3px;">Omnicom Affinity Hub</span>
   </div>
-  <h1>MLflow GenAI Workshop — AdTech</h1>
-  <p class="sub">Learn how to evaluate, trace, and optimize the Omnicom Affinity Hub Supervisor Agent — routing unstructured document queries to the KA and structured data queries to Genie.</p>
-  <span class="tag">Prompt Optimization Lab</span>
+  <h1>Omnicom Affinity Hub — Supervisor Agent</h1>
+  <p class="sub">A multi-agent supervisor that routes AdTech questions to a Knowledge Assistant (methodology &amp; playbooks) or a Genie Space (campaign metrics &amp; structured data). Identity passthrough lets each client see only their data.</p>
+  <span class="tag">Multi-Agent · RAG · Identity</span>
 </div>
 
 <div class="steps-section">
@@ -227,44 +226,37 @@ _HOME_HTML = r"""<!DOCTYPE html>
 
     <div class="step">
       <div class="num">Step 01</div>
-      <h3>Setup Data &amp; Knowledge Assistant</h3>
-      <p>Generate synthetic AT&T/Omnicom adtech documents, create opportunities & campaigns tables, spin up the KA and Genie Space, and deploy the Supervisor Agent.</p>
+      <h3>Setup Data &amp; Genie Space</h3>
+      <p>Create the Genie Space over the shared AdTech tables in Unity Catalog and provision the service principal used for identity passthrough.</p>
       <span class="badge setup">Setup</span>
     </div>
 
     <div class="step">
       <div class="num">Step 02</div>
-      <h3>Explore Auto-Generated Traces</h3>
-      <p>The KA instruments every request automatically. Learn to query traces with <code style="color:var(--accent-2)">mlflow.search_traces()</code>, drill into spans, and snapshot to Delta.</p>
-      <span class="badge trace">Tracing</span>
+      <h3>Create Knowledge Assistant &amp; Supervisor</h3>
+      <p>Spin up the KA over the campaign docs volume. Create the Supervisor Agent via the Databricks SDK, attaching KA and Genie Space as tools.</p>
+      <span class="badge setup">Setup</span>
     </div>
 
     <div class="step">
       <div class="num">Step 03</div>
-      <h3>Evaluate V1 (Baseline)</h3>
-      <p>Run <code style="color:var(--accent-2)">mlflow.genai.evaluate()</code> against 30 Q&amp;A pairs with four scorers — answer quality, safety, groundedness, and completeness.</p>
-      <span class="badge eval">Evaluation</span>
+      <h3>Trace &amp; Evaluate KA</h3>
+      <p>Fire 5 synthetic AdTech questions at the KA. Search traces with <code style="color:var(--accent-2)">mlflow.search_traces()</code>, run <code style="color:var(--accent-2)">mlflow.genai.evaluate()</code> with a custom guideline scorer.</p>
+      <span class="badge trace">Tracing</span>
     </div>
 
     <div class="step">
       <div class="num">Step 04</div>
-      <h3>Optimize with GEPA</h3>
-      <p>Use <code style="color:var(--accent-2)">mlflow.genai.optimize_prompts()</code> to automatically generate improved KA instructions. Registered in the MLflow Prompt Registry.</p>
-      <span class="badge optim">Optimization</span>
+      <h3>Identity Passthrough with Genie</h3>
+      <p>Call Genie with a service principal's <code style="color:var(--accent-2)">user_context</code> to demonstrate how Unity Catalog row-level security enforces per-client data access.</p>
+      <span class="badge eval">Identity</span>
     </div>
 
     <div class="step">
       <div class="num">Step 05</div>
-      <h3>Evaluate &amp; Compare</h3>
-      <p>Evaluate the optimized instructions against the same dataset. Side-by-side comparison of V1 vs optimized across all scorer dimensions.</p>
-      <span class="badge compare">Comparison</span>
-    </div>
-
-    <div class="step">
-      <div class="num">Step 06</div>
-      <h3>Apply &amp; Demo</h3>
-      <p>Push the optimized instructions to the live KA endpoint. Try the updated assistant below — compare responses before and after optimization.</p>
-      <span class="badge deploy">Deploy</span>
+      <h3>Try the Supervisor Agent</h3>
+      <p>Ask any question here — the Supervisor routes to KA for docs or Genie for data automatically. Switch client identity to see RLS in action.</p>
+      <span class="badge deploy">Live Demo</span>
     </div>
 
   </div>
@@ -276,34 +268,34 @@ _HOME_HTML = r"""<!DOCTYPE html>
   <h2>Key Concepts</h2>
   <div class="concepts-grid">
     <div class="concept">
-      <div class="label">Auto-Tracing</div>
-      <div class="desc">KA generates MLflow traces automatically — no instrumentation needed</div>
+      <div class="label">Supervisor Agent</div>
+      <div class="desc">Routes questions to KA (docs) or Genie (data) automatically</div>
     </div>
     <div class="concept">
-      <div class="label">Prompt Registry</div>
-      <div class="desc">Version KA instructions with aliases (v1, optimized) in MLflow</div>
+      <div class="label">Knowledge Assistant</div>
+      <div class="desc">RAG over campaign docs — methodology, playbooks, case studies</div>
     </div>
     <div class="concept">
-      <div class="label">GEPA</div>
-      <div class="desc">Gradient-free prompt optimization using evaluation feedback</div>
+      <div class="label">Genie Space</div>
+      <div class="desc">Natural language to SQL over Unity Catalog AdTech tables</div>
     </div>
     <div class="concept">
-      <div class="label">Custom Scorers</div>
-      <div class="desc">answer_quality, Safety, Guidelines (groundedness &amp; completeness)</div>
+      <div class="label">Identity Passthrough</div>
+      <div class="desc">Genie executes SQL as the client SP — UC RLS enforces row access</div>
     </div>
     <div class="concept">
-      <div class="label">Delta Snapshots</div>
-      <div class="desc">Trace data materialized to UC tables for SQL analytics</div>
+      <div class="label">MLflow Tracing</div>
+      <div class="desc">Auto-generated traces for every KA query, searchable via SDK</div>
     </div>
     <div class="concept">
       <div class="label">Databricks Apps</div>
-      <div class="desc">One-click deploy — this UI is served from a DAB-managed app</div>
+      <div class="desc">Deployed as a DAB-managed app via <code>databricks bundle deploy</code></div>
     </div>
   </div>
 </div>
 
 <div class="cta">
-  <p>The KA is live — try it out</p>
+  <p>The Supervisor Agent is live — try it out</p>
   <a href="/chat" class="btn">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     Open Demo Chat
@@ -360,6 +352,10 @@ _CHAT_UI_HTML = r"""<!DOCTYPE html>
   .pill.info { background:rgba(96,165,250,.12); color:var(--info); }
   .pill.muted { background:rgba(139,148,167,.12); color:var(--muted); }
 
+  .sp-select { padding:0 12px 12px; }
+  .sp-select label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:var(--muted); display:block; margin-bottom:6px; }
+  .sp-select select { width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12px; cursor:pointer; }
+  .sp-select select:focus { outline:none; border-color:var(--accent); }
   .footer { border-top:1px solid var(--line); padding:14px 20px; color:var(--muted); font-size:11px; line-height:1.6; }
   .footer .kv { display:flex; justify-content:space-between; gap:8px; }
   .footer code { color:var(--text); font-size:11px; }
@@ -459,8 +455,23 @@ _CHAT_UI_HTML = r"""<!DOCTYPE html>
     </div>
     <h3>Sample questions</h3>
     <div id="samples" class="samples"></div>
+    <div class="sp-select">
+      <label>Client identity</label>
+      <select id="sp-select">
+        <option value="">— No identity (full access) —</option>
+        <option value="C-001">C-001</option>
+        <option value="C-002">C-002</option>
+        <option value="C-003">C-003</option>
+        <option value="C-004">C-004</option>
+        <option value="C-005">C-005</option>
+        <option value="C-006">C-006</option>
+        <option value="C-007">C-007</option>
+        <option value="C-008">C-008</option>
+        <option value="C-009">C-009</option>
+        <option value="C-010">C-010</option>
+      </select>
+    </div>
     <div class="footer">
-      <div class="kv"><span>Prompt</span> <code id="cfg-prompt">…</code></div>
       <div class="kv"><span>LLM</span> <code id="cfg-llm">…</code></div>
       <div class="kv" id="cfg-exp-row" style="display:none"><span>Experiment</span> <code id="cfg-exp"></code></div>
       <div style="margin-top:8px; font-size:10px; color:var(--muted);">Omnicom Affinity Hub · MLflow on Databricks</div>
@@ -469,18 +480,18 @@ _CHAT_UI_HTML = r"""<!DOCTYPE html>
 
   <section class="main">
     <header class="header">
-      <h1>Affinity Hub Q&amp;A</h1>
+      <h1>Supervisor Agent</h1>
       <div class="badges">
-        <span class="badge" id="b-prompt"><span>Prompt</span><b id="b-prompt-val">…</b></span>
         <span class="badge"><span>Latency</span><b id="b-lat">—</b></span>
         <span class="badge"><span>Trace</span><b id="b-trace">—</b></span>
+        <span class="badge"><span>Identity</span><b id="b-identity">none</b></span>
       </div>
     </header>
 
     <div class="chat" id="chat"></div>
 
     <div class="input-row">
-      <textarea id="input" rows="3" placeholder="Pick a sample question ← or ask about AT&T, JLR, Pepsi opportunities and campaigns…"
+      <textarea id="input" rows="3" placeholder="Ask about campaigns, methodology, performance data, or client onboarding…"
                 onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){event.preventDefault();send()}"></textarea>
       <button class="send" id="btn" onclick="send()">Ask <small style="opacity:.7">⌘↵</small></button>
     </div>
@@ -529,13 +540,15 @@ function renderSamples(samples){
 async function loadConfig(){
   try{
     const r=await fetch('/api/config'); CFG=await r.json();
-    $('cfg-prompt').textContent = CFG.prompt_alias || '—';
     $('cfg-llm').textContent = CFG.llm_endpoint || '—';
     if(CFG.experiment){ $('cfg-exp-row').style.display='flex'; $('cfg-exp').textContent = CFG.experiment.split('/').pop(); }
-    const bp=$('b-prompt-val'); bp.textContent = CFG.prompt_alias || '—';
-    $('b-prompt').classList.add(CFG.prompt_alias === 'optimized' ? 'optimized' : 'v1');
     renderSamples(CFG.samples||[]);
   }catch(e){ console.error(e); }
+}
+
+function selectedClientId(){
+  const sel = document.getElementById('sp-select');
+  return sel ? sel.value : '';
 }
 
 function tryParseVerdict(text){
@@ -634,11 +647,16 @@ function escapeHtml(s){
 
 async function send(){
   const text=input.value.trim(); if(!text) return;
+  const clientId = selectedClientId();
   renderUserMsg(text); input.value=''; btn.disabled=true;
+  if(clientId) $('b-identity').textContent = clientId;
+  else $('b-identity').textContent = 'none';
   const loader=renderLoading();
   const t0=performance.now();
+  const body = {input:[{role:'user',content:text}]};
+  if(clientId) body.custom_inputs = {tenant_id: clientId};
   try{
-    const r=await fetch('/invocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:[{role:'user',content:text}]})});
+    const r=await fetch('/invocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await r.json();
     loader.stop(); loader.node.remove();
     if(!r.ok){

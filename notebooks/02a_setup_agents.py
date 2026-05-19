@@ -88,32 +88,42 @@ from databricks.sdk import WorkspaceClient
 
 # COMMAND ----------
 
-# DBTITLE 1,Create KA
+# DBTITLE 1,Create KA (idempotent)
 w = WorkspaceClient()
 
 # display_name must match ^[\w.-]+$ and be 4-63 chars
 ka_display_name = KA_NAME[:63]
 
-response = w.api_client.do(
-    "POST",
-    "/api/2.1/knowledge-assistants",
-    body={
-        "display_name": ka_display_name,
-        "description": "Omnicom Affinity Hub Q&A assistant — methodology, AT&T account, campaign playbooks, case studies",
-        "instructions": (
-            "You are a helpful assistant for Omnicom Affinity Hub account managers. "
-            "Answer questions about Affinity Hub methodology, client accounts, campaign playbooks, "
-            "and case studies. Cite the source document when possible."
-        ),
-    },
-)
+# Check if already exists first
+_existing_kas = w.api_client.do("GET", "/api/2.1/knowledge-assistants").get("knowledge_assistants", [])
+_existing_ka = next((k for k in _existing_kas if k.get("display_name") == ka_display_name), None)
 
-KA_ID = response.get("id")
-KA_NAME_RESOURCE = response.get("name")   # format: knowledge-assistants/{id}
-KA_ENDPOINT = response.get("endpoint_name", KA_ENDPOINT)
-KA_STATE = response.get("state", "CREATING")
+if _existing_ka:
+    KA_ID = _existing_ka["id"]
+    KA_NAME_RESOURCE = _existing_ka.get("name", "")
+    KA_ENDPOINT = _existing_ka.get("endpoint_name", KA_ENDPOINT)
+    KA_STATE = _existing_ka.get("state", "UNKNOWN")
+    print(f"KA already exists — skipping creation.")
+else:
+    response = w.api_client.do(
+        "POST",
+        "/api/2.1/knowledge-assistants",
+        body={
+            "display_name": ka_display_name,
+            "description": "Omnicom Affinity Hub Q&A assistant — methodology, AT&T account, campaign playbooks, case studies",
+            "instructions": (
+                "You are a helpful assistant for Omnicom Affinity Hub account managers. "
+                "Answer questions about Affinity Hub methodology, client accounts, campaign playbooks, "
+                "and case studies. Cite the source document when possible."
+            ),
+        },
+    )
+    KA_ID = response.get("id")
+    KA_NAME_RESOURCE = response.get("name", "")
+    KA_ENDPOINT = response.get("endpoint_name", KA_ENDPOINT)
+    KA_STATE = response.get("state", "CREATING")
+    print(f"KA created!")
 
-print(f"KA created!")
 print(f"  id            : {KA_ID}")
 print(f"  name          : {KA_NAME_RESOURCE}")
 print(f"  endpoint_name : {KA_ENDPOINT}")
@@ -130,19 +140,26 @@ print(f"  state         : {KA_STATE}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Create knowledge source
-ks_response = w.api_client.do(
-    "POST",
-    f"/api/2.1/knowledge-assistants/{KA_ID}/knowledge-sources",
-    body={
-        "display_name": "Omnicom Affinity Hub Documents",
-        "description": "Unstructured adtech documents — methodology, campaign playbooks, client info, case studies",
-        "source_type": "files",
-        "files": {"path": UNSTRUCTURED_PATH},
-    },
-)
+# DBTITLE 1,Attach knowledge source (idempotent)
+_existing_ks = w.api_client.do(
+    "GET", f"/api/2.1/knowledge-assistants/{KA_ID}/knowledge-sources"
+).get("knowledge_sources", [])
 
-KS_ID = ks_response.get("id")
+if _existing_ks:
+    KS_ID = _existing_ks[0]["id"]
+    print(f"Knowledge source already attached — skipping. (id={KS_ID})")
+else:
+    ks_response = w.api_client.do(
+        "POST",
+        f"/api/2.1/knowledge-assistants/{KA_ID}/knowledge-sources",
+        body={
+            "display_name": "Omnicom Affinity Hub Documents",
+            "description": "Unstructured adtech documents — methodology, campaign playbooks, client info, case studies",
+            "source_type": "files",
+            "files": {"path": UNSTRUCTURED_PATH},
+        },
+    )
+    KS_ID = ks_response.get("id")
 print(f"Knowledge source created!")
 print(f"  id    : {KS_ID}")
 print(f"  state : {ks_response.get('state')}")
@@ -278,13 +295,12 @@ except Exception as e:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Section 5: Test the Supervisor API
+# MAGIC ## Section 5: Create Supervisor Agent
 # MAGIC
-# MAGIC The Databricks Supervisor API (`POST /mlflow/v1/responses`) is **stateless** — there is
-# MAGIC no "create supervisor" step. You define tools (KA + Genie Space) inline on each request
-# MAGIC and Databricks runs the agent routing loop automatically.
+# MAGIC Uses the Databricks SDK `SupervisorAgentsAPI` to create a persistent Supervisor Agent
+# MAGIC that routes between the KA (docs) and Genie Space (structured data).
 # MAGIC
-# MAGIC Docs: https://docs.databricks.com/aws/en/generative-ai/agent-bricks/supervisor-api
+# MAGIC SDK docs: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/supervisoragents/supervisor_agents.html
 
 # COMMAND ----------
 
@@ -303,41 +319,80 @@ print(f"KA ID          : {KA_ID}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Test Supervisor API — route a question to KA or Genie automatically
+# DBTITLE 1,Create Supervisor Agent via SDK
+supervisor_name = f"{_short_name}-adtech-supervisor"
+
+# Check if already exists
+_existing = next(
+    (sa for sa in w.supervisor_agents.list_supervisor_agents()
+     if sa.display_name == supervisor_name),
+    None,
+)
+
+if _existing:
+    SUPERVISOR_NAME = _existing.name   # "supervisor-agents/{id}"
+    print(f"Supervisor Agent already exists: {supervisor_name}")
+    print(f"  resource name: {SUPERVISOR_NAME}")
+else:
+    _sa = w.supervisor_agents.create_supervisor_agent(
+        supervisor_agent={
+            "display_name": supervisor_name,
+            "description": (
+                "Omnicom Affinity Hub Supervisor Agent. Routes AdTech questions to the "
+                "Knowledge Assistant (methodology, playbooks, docs) or Genie Space "
+                "(campaign metrics, financials, structured data)."
+            ),
+        }
+    )
+    SUPERVISOR_NAME = _sa.name
+    print(f"Created Supervisor Agent: {supervisor_name}")
+    print(f"  resource name: {SUPERVISOR_NAME}")
+
+    # Add Knowledge Assistant tool
+    w.supervisor_agents.create_tool(
+        parent=SUPERVISOR_NAME,
+        tool_id="knowledge_assistant",
+        tool={
+            "display_name": "Knowledge Assistant",
+            "knowledge_assistant": {
+                "knowledge_assistant_id": KA_ID,
+                "description": (
+                    "Answers questions about methodology, playbooks, onboarding procedures, "
+                    "account information, case studies, and campaign guidelines from documents."
+                ),
+            },
+        },
+    )
+    print("  + Added Knowledge Assistant tool")
+
+    # Add Genie Space tool
+    w.supervisor_agents.create_tool(
+        parent=SUPERVISOR_NAME,
+        tool_id="genie_analytics",
+        tool={
+            "display_name": "Genie Analytics",
+            "genie_space": {
+                "id": GENIE_SPACE_ID,
+                "description": (
+                    "Answers questions about campaign performance, financials, client data, "
+                    "creative assets, and any question that requires querying structured data."
+                ),
+            },
+        },
+    )
+    print("  + Added Genie Space tool")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test Supervisor Agent
 from databricks_openai import DatabricksOpenAI
 
 supervisor_client = DatabricksOpenAI(use_ai_gateway=True)
 
-SUPERVISOR_TOOLS = [
-    {
-        "type": "knowledge_assistant",
-        "knowledge_assistant": {
-            "knowledge_assistant_id": KA_ID,
-            "description": (
-                "Answers questions about methodology, playbooks, onboarding procedures, "
-                "account information, case studies, and campaign guidelines from documents."
-            ),
-        },
-    },
-    {
-        "type": "genie_space",
-        "genie_space": {
-            "id": GENIE_SPACE_ID,
-            "description": (
-                "Answers questions about campaign performance, financials, client data, "
-                "creative assets, and any question that requires querying structured data."
-            ),
-        },
-    },
-]
-
-# Store for use by agent_server at runtime
-print("Supervisor tools configured. Testing with a sample question...")
-
 response = supervisor_client.responses.create(
     model=LLM_ENDPOINT,
     input=[{"type": "message", "role": "user", "content": "What were total campaign impressions last month?"}],
-    tools=SUPERVISOR_TOOLS,
+    tools=[{"type": "supervisor_agent", "supervisor_agent": {"name": SUPERVISOR_NAME}}],
     stream=False,
 )
 print(response.output_text)

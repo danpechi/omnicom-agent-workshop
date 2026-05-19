@@ -16,7 +16,7 @@
 # COMMAND ----------
 
 # DBTITLE 1,Install dependencies
-# MAGIC %pip install databricks-agents==1.6.0 "mlflow[databricks]>=3.5" --quiet
+# MAGIC %pip install databricks-agents==1.6.0 "mlflow[databricks]>=3.5" databricks-openai --quiet
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
@@ -35,6 +35,18 @@ from mlflow import MlflowClient
 
 mlflow.set_experiment(EXPERIMENT_PATH)
 os.environ["MLFLOW_GENAI_EVAL_MAX_WORKERS"] = "1"
+
+# Resolve the actual KA serving endpoint name (auto-generated, e.g. ka-0e618699-endpoint)
+# KA_ENDPOINT from config holds the KA display name; the API returns the real endpoint_name.
+from databricks.sdk import WorkspaceClient as _WC
+_w = _WC()
+try:
+    _ka_list = _w.api_client.do("GET", "/api/2.1/knowledge-assistants").get("knowledge_assistants", [])
+    _ka = next((k for k in _ka_list if k.get("display_name") == KA_ENDPOINT or k.get("endpoint_name") == KA_ENDPOINT), None)
+    if _ka and _ka.get("endpoint_name"):
+        KA_ENDPOINT = _ka["endpoint_name"]
+except Exception as _e:
+    print(f"WARN: could not resolve KA endpoint name: {_e}")
 
 ka_instruction = (
     "You are a helpful assistant for Omnicom Affinity Hub. "

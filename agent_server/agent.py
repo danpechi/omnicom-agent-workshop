@@ -2,6 +2,7 @@
 
 import logging
 import os
+import uuid
 from typing import Any, AsyncGenerator
 
 import mlflow
@@ -163,6 +164,7 @@ async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentRespon
     answer = await _answer(question)
 
     output_item = {
+        "id": f"msg_{uuid.uuid4().hex[:8]}",
         "type": "message",
         "role": "assistant",
         "content": [{"type": "output_text", "text": answer}],
@@ -194,6 +196,7 @@ async def stream_handler(
     yield ResponsesAgentStreamEvent.model_validate({
         "type": "response.output_item.done",
         "item": {
+            "id": f"msg_{uuid.uuid4().hex[:8]}",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "output_text", "text": answer}],
