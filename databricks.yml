@@ -50,12 +50,10 @@ resources:
       source_code_path: .
       config:
         env:
-          - name: KA_ENDPOINT_NAME
-            value: "${var.ka_endpoint}"
-          - name: GENIE_SPACE_NAME
-            value: "${var.genie_name}"
-          - name: SUPERVISOR_ENDPOINT
+          - name: SUPERVISOR_DISPLAY_NAME
             value: "${var.supervisor_endpoint}"
+          - name: LLM_ENDPOINT_NAME
+            value: "${var.llm_endpoint}"
           - name: TENANT_SPS_TABLE
             value: "${var.catalog}.${var.schema}.${var.tenant_sps_table}"
           - name: MLFLOW_EXPERIMENT_NAME

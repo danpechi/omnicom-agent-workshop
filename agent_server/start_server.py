@@ -456,6 +456,12 @@ _CHAT_UI_HTML = r"""<!DOCTYPE html>
     <h3>Sample questions</h3>
     <div id="samples" class="samples"></div>
     <div class="sp-select">
+      <label>Supervisor Agent</label>
+      <input id="sa-input" type="text" placeholder="supervisor-agents/{id}" spellcheck="false"
+             style="width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+                    border-radius:8px; padding:8px 10px; font-size:12px; font-family:'JetBrains Mono',monospace;" />
+    </div>
+    <div class="sp-select">
       <label>Client identity</label>
       <select id="sp-select">
         <option value="">— No identity (full access) —</option>
@@ -472,9 +478,8 @@ _CHAT_UI_HTML = r"""<!DOCTYPE html>
       </select>
     </div>
     <div class="footer">
-      <div class="kv"><span>LLM</span> <code id="cfg-llm">…</code></div>
       <div class="kv" id="cfg-exp-row" style="display:none"><span>Experiment</span> <code id="cfg-exp"></code></div>
-      <div style="margin-top:8px; font-size:10px; color:var(--muted);">Omnicom Affinity Hub · MLflow on Databricks</div>
+      <div style="font-size:10px; color:var(--muted);">Omnicom Affinity Hub · MLflow on Databricks</div>
     </div>
   </aside>
 
@@ -540,7 +545,6 @@ function renderSamples(samples){
 async function loadConfig(){
   try{
     const r=await fetch('/api/config'); CFG=await r.json();
-    $('cfg-llm').textContent = CFG.llm_endpoint || '—';
     if(CFG.experiment){ $('cfg-exp-row').style.display='flex'; $('cfg-exp').textContent = CFG.experiment.split('/').pop(); }
     renderSamples(CFG.samples||[]);
   }catch(e){ console.error(e); }
@@ -551,12 +555,17 @@ function selectedClientId(){
   return sel ? sel.value : '';
 }
 
-function tryParseVerdict(text){
-  // Pull the first JSON object that has a "verdict" field
-  const m = text.match(/\{[\s\S]*?"verdict"[\s\S]*?\}/);
-  if(!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
+// Persist SA name across reloads
+const saInput = document.getElementById('sa-input');
+if(saInput){
+  saInput.value = localStorage.getItem('sa_name') || '';
+  saInput.addEventListener('input', () => localStorage.setItem('sa_name', saInput.value.trim()));
 }
+
+function selectedSupervisorName(){
+  return (saInput ? saInput.value.trim() : '') || '';
+}
+
 
 function renderUserMsg(text){
   const wrap=document.createElement('div'); wrap.className='msg user';
@@ -578,43 +587,20 @@ function renderLoading(){
   return { node: wrap, stop: ()=>clearInterval(t) };
 }
 
-function renderVerdict(parsed, rawText, meta){
+function renderResponse(text, meta){
   const wrap=document.createElement('div'); wrap.className='msg assistant';
-  const card=document.createElement('div'); card.className='verdict-card';
 
-  if(parsed){
-    const v=String(parsed.verdict||'').toLowerCase();
-    const conf=Math.max(0,Math.min(1,Number(parsed.confidence)||0));
-    card.innerHTML=`
-      <div class="verdict-head">
-        <div class="label">Verdict</div>
-        <div class="v ${v}">${v||'unknown'}</div>
-        <div class="conf">
-          <span style="color:var(--muted); font-size:11px;">Confidence</span>
-          <div class="bar"><i style="width:${(conf*100).toFixed(0)}%"></i></div>
-          <div class="num">${(conf*100).toFixed(0)}%</div>
-        </div>
-      </div>
-      <div class="verdict-body">
-        ${parsed.evidence_summary ? `<div class="vsec"><div class="h">Evidence summary</div><div class="b">${escapeHtml(parsed.evidence_summary)}</div></div>` : ''}
-        ${parsed.reasoning ? `<div class="vsec"><div class="h">Reasoning</div><div class="b">${escapeHtml(parsed.reasoning)}</div></div>` : ''}
-        ${Array.isArray(parsed.recommended_actions) && parsed.recommended_actions.length ? `
-          <div class="vsec"><div class="h">Recommended actions</div>
-            <ul class="actions">${parsed.recommended_actions.map(a=>`<li>${escapeHtml(String(a))}</li>`).join('')}</ul>
-          </div>` : ''}
-      </div>`;
-  } else {
-    // Fallback — agent didn't return parseable JSON; just dump the text
-    const body=document.createElement('div'); body.className='verdict-body';
-    const pre=document.createElement('pre'); pre.style.margin='0'; pre.style.whiteSpace='pre-wrap'; pre.textContent=rawText;
-    body.appendChild(pre); card.appendChild(body);
-  }
+  // Main bubble
+  const bubble=document.createElement('div'); bubble.className='bubble';
+  bubble.style.whiteSpace='pre-wrap';
+  bubble.textContent=text;
+  wrap.appendChild(bubble);
 
-  // Meta row: trace ID + latency + raw response toggle
+  // Meta row: trace + latency chips
   const meta_row=document.createElement('div'); meta_row.className='meta-row';
   if(meta.trace_id){
     const chip=document.createElement('span'); chip.className='chip';
-    chip.innerHTML = `<span>trace_id</span> <code>${meta.trace_id.slice(0,16)}…</code>`;
+    chip.innerHTML=`<span>trace_id</span> <code>${meta.trace_id.slice(0,12)}…</code>`;
     chip.title='Click to copy full trace ID';
     chip.onclick=()=>copy(meta.trace_id);
     meta_row.appendChild(chip);
@@ -629,16 +615,9 @@ function renderVerdict(parsed, rawText, meta){
     chip.innerHTML=`<span>latency</span> <code>${(meta.latency_ms/1000).toFixed(1)}s</code>`;
     meta_row.appendChild(chip);
   }
-  if(meta_row.children.length) card.appendChild(meta_row);
+  if(meta_row.children.length) wrap.appendChild(meta_row);
 
-  // Raw response (collapsible)
-  if(rawText){
-    const det=document.createElement('details'); det.className='raw'; det.style.padding='0 18px 14px';
-    det.innerHTML=`<summary>Raw agent response</summary><pre>${escapeHtml(rawText)}</pre>`;
-    card.appendChild(det);
-  }
-
-  wrap.appendChild(card); chat.appendChild(wrap); chat.scrollTop=chat.scrollHeight;
+  chat.appendChild(wrap); chat.scrollTop=chat.scrollHeight;
 }
 
 function escapeHtml(s){
@@ -653,8 +632,11 @@ async function send(){
   else $('b-identity').textContent = 'none';
   const loader=renderLoading();
   const t0=performance.now();
+  const saName = selectedSupervisorName();
   const body = {input:[{role:'user',content:text}]};
-  if(clientId) body.custom_inputs = {tenant_id: clientId};
+  body.custom_inputs = {};
+  if(saName) body.custom_inputs.supervisor_name = saName;
+  if(clientId) body.custom_inputs.tenant_id = clientId;
   try{
     const r=await fetch('/invocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await r.json();
@@ -667,7 +649,6 @@ async function send(){
     const texts=[];
     for(const item of data.output||[]) if(item.type==='message') for(const c of item.content||[]) if(c.type==='output_text') texts.push(c.text);
     const rawText=texts.join('\n');
-    const parsed=tryParseVerdict(rawText);
     const co=data.custom_outputs||{};
     const latency=performance.now()-t0;
 
@@ -680,7 +661,7 @@ async function send(){
     }
     $('b-lat').textContent = (latency/1000).toFixed(1)+'s';
 
-    renderVerdict(parsed, rawText, { trace_id: co.trace_id, trace_url: co.trace_url, latency_ms: latency });
+    renderResponse(rawText, { trace_id: co.trace_id, trace_url: co.trace_url, latency_ms: latency });
   }catch(e){
     loader.stop(); loader.node.remove();
     const wrap=document.createElement('div'); wrap.className='msg assistant';

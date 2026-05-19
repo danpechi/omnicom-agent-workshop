@@ -323,65 +323,78 @@ print(f"KA ID          : {KA_ID}")
 # DBTITLE 1,Create Supervisor Agent via SDK
 supervisor_name = f"{_short_name}-adtech-supervisor"
 
-# Check if already exists
-_existing = next(
-    (sa for sa in w.supervisor_agents.list_supervisor_agents()
-     if sa.display_name == supervisor_name),
-    None,
-)
+# Check if supervisor already exists
+_existing_sas = w.api_client.do("GET", "/api/2.1/supervisor-agents").get("supervisor_agents", [])
+_existing_sa = next((s for s in _existing_sas if s.get("display_name") == supervisor_name), None)
 
-if _existing:
-    SUPERVISOR_NAME = _existing.name   # "supervisor-agents/{id}"
-    print(f"Supervisor Agent already exists: {supervisor_name}")
-    print(f"  resource name: {SUPERVISOR_NAME}")
+if _existing_sa:
+    SUPERVISOR_NAME = _existing_sa["name"]
+    print(f"Supervisor Agent already exists — skipping creation.")
 else:
-    _sa = w.supervisor_agents.create_supervisor_agent(
-        supervisor_agent={
+    _sa = w.api_client.do(
+        "POST",
+        "/api/2.1/supervisor-agents",
+        body={
             "display_name": supervisor_name,
             "description": (
                 "Omnicom Affinity Hub Supervisor Agent. Routes AdTech questions to the "
                 "Knowledge Assistant (methodology, playbooks, docs) or Genie Space "
                 "(campaign metrics, financials, structured data)."
             ),
-        }
+        },
     )
-    SUPERVISOR_NAME = _sa.name
+    SUPERVISOR_NAME = _sa["name"]
     print(f"Created Supervisor Agent: {supervisor_name}")
-    print(f"  resource name: {SUPERVISOR_NAME}")
 
-    # Add Knowledge Assistant tool
-    w.supervisor_agents.create_tool(
-        parent=SUPERVISOR_NAME,
-        tool_id="knowledge_assistant",
-        tool={
-            "display_name": "Knowledge Assistant",
+print(f"  resource name: {SUPERVISOR_NAME}")
+
+# Check existing tools
+_existing_tools = w.api_client.do(
+    "GET", f"/api/2.1/{SUPERVISOR_NAME}/tools"
+).get("tools", [])
+_existing_tool_ids = {t.get("tool_id") for t in _existing_tools}
+
+# Add Knowledge Assistant tool
+if "ka_tool" not in _existing_tool_ids:
+    w.api_client.do(
+        "POST",
+        f"/api/2.1/{SUPERVISOR_NAME}/tools",
+        query={"tool_id": "ka_tool"},
+        body={
+            "tool_type": "knowledge_assistant",
+            "description": (
+                "Answers questions about methodology, playbooks, onboarding procedures, "
+                "account information, case studies, and campaign guidelines from documents."
+            ),
             "knowledge_assistant": {
                 "knowledge_assistant_id": KA_ID,
-                "description": (
-                    "Answers questions about methodology, playbooks, onboarding procedures, "
-                    "account information, case studies, and campaign guidelines from documents."
-                ),
             },
         },
     )
     print("  + Added Knowledge Assistant tool")
+else:
+    print("  ~ Knowledge Assistant tool already exists")
 
-    # Add Genie Space tool
-    w.supervisor_agents.create_tool(
-        parent=SUPERVISOR_NAME,
-        tool_id="genie_analytics",
-        tool={
-            "display_name": "Genie Analytics",
+# Add Genie Space tool
+if "genie_tool" not in _existing_tool_ids:
+    w.api_client.do(
+        "POST",
+        f"/api/2.1/{SUPERVISOR_NAME}/tools",
+        query={"tool_id": "genie_tool"},
+        body={
+            "tool_type": "genie_space",
+            "description": (
+                "Answers questions about campaign performance, financials, client data, "
+                "creative assets, and any question that requires querying structured data."
+            ),
             "genie_space": {
                 "id": GENIE_SPACE_ID,
-                "description": (
-                    "Answers questions about campaign performance, financials, client data, "
-                    "creative assets, and any question that requires querying structured data."
-                ),
             },
         },
     )
     print("  + Added Genie Space tool")
+else:
+    print("  ~ Genie Space tool already exists")
 
 # COMMAND ----------
 

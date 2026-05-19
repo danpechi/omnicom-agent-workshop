@@ -23,74 +23,38 @@ if _EXPERIMENT_NAME:
     except Exception as e:
         logger.warning("Could not set MLflow experiment %s: %s", _EXPERIMENT_NAME, e)
 
-KA_ENDPOINT_NAME  = os.getenv("KA_ENDPOINT_NAME", "")   # KA serving endpoint name
-GENIE_SPACE_NAME  = os.getenv("GENIE_SPACE_NAME", "")   # Genie Space title
-DATABRICKS_HOST   = (os.getenv("DATABRICKS_HOST") or "").rstrip("/")
-LLM_ENDPOINT      = os.getenv("LLM_ENDPOINT_NAME", "databricks-claude-sonnet-4-5")
+SUPERVISOR_DISPLAY_NAME = os.getenv("SUPERVISOR_DISPLAY_NAME", "")  # e.g. "dan-pechi-adtech-supervisor"
+DATABRICKS_HOST         = (os.getenv("DATABRICKS_HOST") or "").rstrip("/")
+LLM_ENDPOINT            = os.getenv("LLM_ENDPOINT_NAME", "databricks-claude-sonnet-4-5")
 
 
-def _resolve_ka_tile_id() -> str:
-    """Resolve KA endpoint name → tile ID via the Knowledge Assistants API."""
-    if not KA_ENDPOINT_NAME:
+def _resolve_supervisor_resource_name() -> str:
+    """Resolve SUPERVISOR_DISPLAY_NAME → resource name (supervisor-agents/{id})."""
+    if not SUPERVISOR_DISPLAY_NAME:
         return ""
     try:
         from databricks.sdk import WorkspaceClient
         w = WorkspaceClient()
-        resp = w.api_client.do("GET", "/api/2.1/knowledge-assistants")
-        for ka in resp.get("knowledge_assistants", []):
-            if ka.get("endpoint_name") == KA_ENDPOINT_NAME:
-                return ka["id"]
+        resp = w.api_client.do("GET", "/api/2.1/supervisor-agents")
+        for sa in resp.get("supervisor_agents", []):
+            if sa.get("display_name") == SUPERVISOR_DISPLAY_NAME:
+                return sa["name"]
+        logger.warning("Supervisor Agent '%s' not found in workspace.", SUPERVISOR_DISPLAY_NAME)
     except Exception as e:
-        logger.warning("Could not resolve KA tile ID for endpoint %s: %s", KA_ENDPOINT_NAME, e)
+        logger.warning("Could not resolve Supervisor Agent name: %s", e)
     return ""
 
 
-def _resolve_genie_space_id() -> str:
-    """Resolve GENIE_SPACE_NAME to a space ID via the Genie API."""
-    if not GENIE_SPACE_NAME:
-        return ""
-    try:
-        from databricks.sdk import WorkspaceClient
-        w = WorkspaceClient()
-        resp = w.api_client.do("GET", "/api/2.0/genie/spaces")
-        spaces = resp.get("genie_spaces", []) if isinstance(resp, dict) else []
-        match = next((s for s in spaces if s.get("title") == GENIE_SPACE_NAME), None)
-        if match:
-            return match["space_id"]
-    except Exception as e:
-        logger.warning("Could not resolve Genie Space name %s: %s", GENIE_SPACE_NAME, e)
-    return ""
-
-
-# Resolve both IDs once at startup
-_KA_TILE_ID: str = _resolve_ka_tile_id()
-_GENIE_SPACE_ID: str = _resolve_genie_space_id()
+_SA_RESOURCE_NAME: str = _resolve_supervisor_resource_name()
 
 _SUPERVISOR_TOOLS: list[dict[str, Any]] = []
-if _KA_TILE_ID:
+if _SA_RESOURCE_NAME:
     _SUPERVISOR_TOOLS.append({
-        "type": "knowledge_assistant",
-        "knowledge_assistant": {
-            "knowledge_assistant_id": _KA_TILE_ID,
-            "description": (
-                "Answers questions about methodology, playbooks, onboarding procedures, "
-                "account information, case studies, and campaign guidelines from documents."
-            ),
-        },
-    })
-if _GENIE_SPACE_ID:
-    _SUPERVISOR_TOOLS.append({
-        "type": "genie_space",
-        "genie_space": {
-            "id": _GENIE_SPACE_ID,
-            "description": (
-                "Answers questions about campaign performance, financials, client data, "
-                "creative assets, and any question that requires querying structured data."
-            ),
-        },
+        "type": "supervisor_agent",
+        "supervisor_agent": {"name": _SA_RESOURCE_NAME},
     })
 
-logger.info("Supervisor tools: %s", [t["type"] for t in _SUPERVISOR_TOOLS])
+logger.info("Supervisor tools: %s tool(s), SA=%s", len(_SUPERVISOR_TOOLS), _SA_RESOURCE_NAME or "(none)")
 
 
 def _build_trace_url(trace_id: str) -> str | None:
@@ -139,29 +103,38 @@ def _extract_question(request: ResponsesAgentRequest) -> str:
     return ""
 
 
-def _sync_call_supervisor(question: str) -> str:
+def _build_tools(supervisor_name: str) -> list[dict[str, Any]]:
+    """Return supervisor_agent tool list for a given resource name."""
+    name = supervisor_name or _SA_RESOURCE_NAME
+    if not name:
+        return []
+    return [{"type": "supervisor_agent", "supervisor_agent": {"name": name}}]
+
+
+def _sync_call_supervisor(question: str, supervisor_name: str = "") -> str:
     """Call the Databricks Supervisor API (POST /mlflow/v1/responses)."""
     from databricks_openai import DatabricksOpenAI
     client = DatabricksOpenAI(use_ai_gateway=True)
     response = client.responses.create(
         model=LLM_ENDPOINT,
         input=[{"type": "message", "role": "user", "content": question}],
-        tools=_SUPERVISOR_TOOLS,
+        tools=_build_tools(supervisor_name),
         stream=False,
     )
     return response.output_text or ""
 
 
-async def _answer(question: str) -> str:
+async def _answer(question: str, supervisor_name: str = "") -> str:
     import asyncio
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _sync_call_supervisor, question)
+    return await loop.run_in_executor(None, _sync_call_supervisor, question, supervisor_name)
 
 
 @invoke()
 async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentResponse:
     question = _extract_question(request)
-    answer = await _answer(question)
+    supervisor_name = (request.custom_inputs or {}).get("supervisor_name", "")
+    answer = await _answer(question, supervisor_name)
 
     output_item = {
         "id": f"msg_{uuid.uuid4().hex[:8]}",
@@ -191,7 +164,8 @@ async def stream_handler(
     request: ResponsesAgentRequest,
 ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
     question = _extract_question(request)
-    answer = await _answer(question)
+    supervisor_name = (request.custom_inputs or {}).get("supervisor_name", "")
+    answer = await _answer(question, supervisor_name)
 
     yield ResponsesAgentStreamEvent.model_validate({
         "type": "response.output_item.done",
