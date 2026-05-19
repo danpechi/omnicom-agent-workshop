@@ -47,9 +47,7 @@ dbutils.widgets.text("ka_endpoint",         _default("WORKSHOP_KA_ENDPOINT",    
 dbutils.widgets.text("genie_name",          _default("WORKSHOP_GENIE_NAME",        f"{_short_name}-adtech-genie"),                            "9. Genie Space name")
 dbutils.widgets.text("supervisor_endpoint", _default("WORKSHOP_SUPERVISOR_EP",     f"{_short_name}-adtech-supervisor"),                       "10. Supervisor serving endpoint")
 dbutils.widgets.text("experiment_name",     _default("WORKSHOP_EXPERIMENT_NAME",   f"{_short_name}-adtech-eval"),                             "11. MLflow experiment subdir")
-dbutils.widgets.text("qa_table",            _default("WORKSHOP_QA_TABLE",          f"{_short_name}_sample_qa"),                               "12. UC table: hand-crafted Q&A")
-dbutils.widgets.text("eval_table",          _default("WORKSHOP_EVAL_TABLE",        f"{_short_name}_eval_dataset"),                            "13. UC table: eval dataset")
-dbutils.widgets.text("tenant_sps_table",    _default("WORKSHOP_TENANT_SPS_TABLE",  f"{_short_name}_tenant_sps"),                              "14. UC table: tenant service principals")
+dbutils.widgets.text("tenant_sps_table",    _default("WORKSHOP_TENANT_SPS_TABLE",  f"{_short_name}_tenant_sps"),                              "12. UC table: tenant service principals")
 
 # COMMAND ----------
 
@@ -69,8 +67,6 @@ KA_ENDPOINT          = dbutils.widgets.get("ka_endpoint").strip().replace("_", "
 GENIE_NAME           = dbutils.widgets.get("genie_name").strip().replace("_", "-")
 SUPERVISOR_ENDPOINT  = dbutils.widgets.get("supervisor_endpoint").strip().replace("_", "-")
 EXPERIMENT_NAME      = dbutils.widgets.get("experiment_name").strip()
-QA_TABLE             = dbutils.widgets.get("qa_table").strip()
-EVAL_TABLE           = dbutils.widgets.get("eval_table").strip()
 TENANT_SPS_TABLE     = dbutils.widgets.get("tenant_sps_table").strip()
 
 for _name, _val in [
@@ -105,12 +101,8 @@ SCHEMA_BT        = _bt(SCHEMA)
 DATA_CATALOG_BT  = _bt(DATA_CATALOG)
 DATA_SCHEMA_BT   = _bt(DATA_SCHEMA)
 
-# User-scoped eval/QA tables (written by this workshop user)
-QA_TABLE_FQN        = f"{CATALOG}.{SCHEMA}.{QA_TABLE}"
-EVAL_TABLE_FQN      = f"{CATALOG}.{SCHEMA}.{EVAL_TABLE}"
-TENANT_SPS_TABLE_FQN = f"{CATALOG}.{SCHEMA}.{TENANT_SPS_TABLE}"
-QA_TABLE_BT_FQN     = f"{CATALOG_BT}.{SCHEMA_BT}.{_bt(QA_TABLE)}"
-EVAL_TABLE_BT_FQN   = f"{CATALOG_BT}.{SCHEMA_BT}.{_bt(EVAL_TABLE)}"
+# User-scoped tables
+TENANT_SPS_TABLE_FQN    = f"{CATALOG}.{SCHEMA}.{TENANT_SPS_TABLE}"
 TENANT_SPS_TABLE_BT_FQN = f"{CATALOG_BT}.{SCHEMA_BT}.{_bt(TENANT_SPS_TABLE)}"
 
 # Shared data tables (already exist in databricks_workshop.sample)
@@ -169,7 +161,7 @@ print(f"  KA endpoint          : {KA_ENDPOINT}")
 print(f"  Genie Space name     : {GENIE_NAME}")
 print(f"  Supervisor endpoint  : {SUPERVISOR_ENDPOINT}")
 print()
-print(f"  Tenant SPs table     : {TENANT_SPS_TABLE_FQN}")
+print(f"  Tenant SPs table : {TENANT_SPS_TABLE_FQN}")
 print(f"  UC Groups:")
 for tid, grp in TENANT_GROUPS.items():
     print(f"    {tid}: {grp}")

@@ -35,17 +35,12 @@ variables:
   experiment_name:
     description: "MLflow experiment subdir under /Users/<current_user>/"
     default: "${workspace.current_user.short_name}-adtech-eval"
-  qa_table:
-    description: "UC table name for sample Q&A (user-scoped)"
-    default: "${workspace.current_user.short_name}_sample_qa"
-  eval_table:
-    description: "UC table name for eval dataset (user-scoped)"
-    default: "${workspace.current_user.short_name}_eval_dataset"
   tenant_sps_table:
     description: "UC table name for tenant service principal lookup (user-scoped)"
     default: "${workspace.current_user.short_name}_tenant_sps"
   app_name:
-    description: "Your personal app name — lowercase letters, numbers, and dashes only. Required."
+    description: "Databricks App name (user-scoped, auto-derived from email short_name)"
+    default: "${workspace.current_user.short_name}-adtech-app"
 
 resources:
   apps:
@@ -83,8 +78,6 @@ resources:
               genie_name: "${var.genie_name}"
               supervisor_endpoint: "${var.supervisor_endpoint}"
               experiment_name: "${var.experiment_name}"
-              qa_table: "${var.qa_table}"
-              eval_table: "${var.eval_table}"
               data_catalog: "${var.data_catalog}"
               data_schema: "${var.data_schema}"
               tenant_sps_table: "${var.tenant_sps_table}"
@@ -104,8 +97,6 @@ resources:
               genie_name: "${var.genie_name}"
               supervisor_endpoint: "${var.supervisor_endpoint}"
               experiment_name: "${var.experiment_name}"
-              qa_table: "${var.qa_table}"
-              eval_table: "${var.eval_table}"
               data_catalog: "${var.data_catalog}"
               data_schema: "${var.data_schema}"
               tenant_sps_table: "${var.tenant_sps_table}"
@@ -125,8 +116,6 @@ resources:
               genie_name: "${var.genie_name}"
               supervisor_endpoint: "${var.supervisor_endpoint}"
               experiment_name: "${var.experiment_name}"
-              qa_table: "${var.qa_table}"
-              eval_table: "${var.eval_table}"
               data_catalog: "${var.data_catalog}"
               data_schema: "${var.data_schema}"
               tenant_sps_table: "${var.tenant_sps_table}"
