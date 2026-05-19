@@ -457,7 +457,7 @@ _CHAT_UI_HTML = r"""<!DOCTYPE html>
     <div id="samples" class="samples"></div>
     <div class="sp-select">
       <label>Supervisor Agent</label>
-      <input id="sa-input" type="text" placeholder="supervisor-agents/{id}" spellcheck="false"
+      <input id="sa-input" type="text" placeholder="mas-xxxxxxxx-endpoint" spellcheck="false"
              style="width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
                     border-radius:8px; padding:8px 10px; font-size:12px; font-family:'JetBrains Mono',monospace;" />
     </div>
@@ -635,7 +635,7 @@ async function send(){
   const saName = selectedSupervisorName();
   const body = {input:[{role:'user',content:text}]};
   body.custom_inputs = {};
-  if(saName) body.custom_inputs.supervisor_name = saName;
+  if(saName) body.custom_inputs.supervisor_endpoint = saName;
   if(clientId) body.custom_inputs.tenant_id = clientId;
   try{
     const r=await fetch('/invocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
