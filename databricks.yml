@@ -4,10 +4,10 @@ bundle:
 variables:
   catalog:
     description: "UC catalog for workshop data"
-    default: "users"
+    default: "databricks_workshop"
   schema:
     description: "UC schema for workshop data"
-    default: "${workspace.current_user.short_name}"
+    default: "sample"
   volume:
     description: "UC volume for documents and eval files (user-scoped)"
     default: "${workspace.current_user.short_name}_adtech_docs"
