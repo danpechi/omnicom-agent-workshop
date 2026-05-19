@@ -24,7 +24,7 @@ if _EXPERIMENT_NAME:
         logger.warning("Could not set MLflow experiment %s: %s", _EXPERIMENT_NAME, e)
 
 SUPERVISOR_ENDPOINT = os.getenv("SUPERVISOR_ENDPOINT", "")  # e.g. "mas-881d67b9-endpoint"
-DATABRICKS_HOST     = (os.getenv("DATABRICKS_HOST") or "").rstrip("/")
+DATABRICKS_HOST     = (os.getenv("DATABRICKS_HOST") or "").rstrip("/")  # used for trace URLs only
 
 logger.info("Supervisor endpoint: %s", SUPERVISOR_ENDPOINT or "(none — set via UI)")
 
@@ -75,30 +75,10 @@ def _extract_question(request: ResponsesAgentRequest) -> str:
     return ""
 
 
-def _get_token() -> str:
-    """Get a bearer token that works for both PAT and OAuth/workload identity auth."""
-    try:
-        from databricks.sdk import WorkspaceClient
-        w = WorkspaceClient()
-        headers: dict = {}
-        w.config.authenticate(headers)
-        auth = headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            return auth[7:]
-        # fallback to explicit token if set
-        return w.config.token or os.getenv("DATABRICKS_TOKEN", "")
-    except Exception as e:
-        logger.warning("Could not retrieve Databricks token: %s", e)
-        return os.getenv("DATABRICKS_TOKEN", "")
-
-
 def _sync_call_supervisor(question: str, endpoint: str) -> str:
     """Call the Supervisor Agent endpoint directly via the Responses API."""
-    from openai import OpenAI
-    client = OpenAI(
-        api_key=_get_token(),
-        base_url=f"{DATABRICKS_HOST}/serving-endpoints",
-    )
+    from databricks_openai import DatabricksOpenAI
+    client = DatabricksOpenAI()
     response = client.responses.create(
         model=endpoint,
         input=[{"role": "user", "content": question}],
