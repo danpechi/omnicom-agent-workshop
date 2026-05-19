@@ -148,6 +148,7 @@ _existing_ks = w.api_client.do(
 if _existing_ks:
     KS_ID = _existing_ks[0]["id"]
     print(f"Knowledge source already attached — skipping. (id={KS_ID})")
+    print(f"  path  : {DOCS_PATH}")
 else:
     ks_response = w.api_client.do(
         "POST",
@@ -160,10 +161,10 @@ else:
         },
     )
     KS_ID = ks_response.get("id")
-print(f"Knowledge source created!")
-print(f"  id    : {KS_ID}")
-print(f"  state : {ks_response.get('state')}")
-print(f"  path  : {DOCS_PATH}")
+    print(f"Knowledge source created!")
+    print(f"  id    : {KS_ID}")
+    print(f"  state : {ks_response.get('state')}")
+    print(f"  path  : {DOCS_PATH}")
 
 # COMMAND ----------
 
