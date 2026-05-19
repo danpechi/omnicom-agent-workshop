@@ -1,8 +1,7 @@
-"""Omnicom Affinity Hub — Supervisor Agent routing questions to KA or Genie."""
+"""Omnicom Affinity Hub — Supervisor Agent using Databricks Responses API."""
 
 import logging
 import os
-import time
 from typing import Any, AsyncGenerator
 
 import mlflow
@@ -13,59 +12,84 @@ from mlflow.types.responses import (
     ResponsesAgentStreamEvent,
 )
 
-
 logger = logging.getLogger(__name__)
-mlflow.langchain.autolog()
 logging.getLogger("mlflow.utils.autologging_utils").setLevel(logging.ERROR)
 
 _EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME")
 if _EXPERIMENT_NAME:
     try:
         mlflow.set_experiment(_EXPERIMENT_NAME)
-        logger.info("MLflow experiment pinned to %s", _EXPERIMENT_NAME)
     except Exception as e:
         logger.warning("Could not set MLflow experiment %s: %s", _EXPERIMENT_NAME, e)
 
-KA_ENDPOINT_NAME  = os.getenv("KA_ENDPOINT_NAME", "")
-GENIE_SPACE_NAME  = os.getenv("GENIE_SPACE_NAME", "")
-TENANT_SPS_TABLE  = os.getenv("TENANT_SPS_TABLE", "")
+KA_ENDPOINT_NAME  = os.getenv("KA_ENDPOINT_NAME", "")   # KA serving endpoint name
+GENIE_SPACE_NAME  = os.getenv("GENIE_SPACE_NAME", "")   # Genie Space title
 DATABRICKS_HOST   = (os.getenv("DATABRICKS_HOST") or "").rstrip("/")
-DATABRICKS_TOKEN  = os.getenv("DATABRICKS_TOKEN", "")
 LLM_ENDPOINT      = os.getenv("LLM_ENDPOINT_NAME", "databricks-claude-sonnet-4-5")
 
-# Routing system prompt — keep it short so the classification call is fast
-_ROUTING_PROMPT = """\
-You are a routing agent for the Omnicom Affinity Hub assistant.
-Classify the user's question as one of two types:
 
-- "genie" — the question asks about data, metrics, counts, distributions, specific records,
-  opportunity pipeline status, campaign performance numbers, or anything that requires
-  querying a database or structured table.
-
-- "ka" — the question asks about methodology, procedures, guidelines, how-to, account
-  information, case studies, onboarding steps, pricing, or anything answered from documents.
-
-Respond with ONLY one word: genie  or  ka"""
-
-
-def _load_tenant_sp_map() -> dict[str, str]:
-    """Load {tenant_id: application_id} from the tenant_sps UC table at startup."""
-    if not TENANT_SPS_TABLE:
-        return {}
+def _resolve_ka_tile_id() -> str:
+    """Resolve KA endpoint name → tile ID via the Knowledge Assistants API."""
+    if not KA_ENDPOINT_NAME:
+        return ""
     try:
-        from pyspark.sql import SparkSession
-        spark = SparkSession.builder.getOrCreate()
-        rows = spark.table(TENANT_SPS_TABLE).select("tenant_id", "application_id").collect()
-        sp_map = {row["tenant_id"]: row["application_id"] for row in rows}
-        logger.info("Loaded %d tenant SP records from %s", len(sp_map), TENANT_SPS_TABLE)
-        return sp_map
+        from databricks.sdk import WorkspaceClient
+        w = WorkspaceClient()
+        resp = w.api_client.do("GET", "/api/2.1/knowledge-assistants")
+        for ka in resp.get("knowledge_assistants", []):
+            if ka.get("endpoint_name") == KA_ENDPOINT_NAME:
+                return ka["id"]
     except Exception as e:
-        logger.warning("Could not load tenant SP map from %s: %s", TENANT_SPS_TABLE, e)
-        return {}
+        logger.warning("Could not resolve KA tile ID for endpoint %s: %s", KA_ENDPOINT_NAME, e)
+    return ""
 
 
-# Load at startup — cached for the lifetime of the server process
-_TENANT_SP_MAP: dict[str, str] = _load_tenant_sp_map()
+def _resolve_genie_space_id() -> str:
+    """Resolve GENIE_SPACE_NAME to a space ID via the Genie API."""
+    if not GENIE_SPACE_NAME:
+        return ""
+    try:
+        from databricks.sdk import WorkspaceClient
+        w = WorkspaceClient()
+        resp = w.api_client.do("GET", "/api/2.0/genie/spaces")
+        spaces = resp.get("genie_spaces", []) if isinstance(resp, dict) else []
+        match = next((s for s in spaces if s.get("title") == GENIE_SPACE_NAME), None)
+        if match:
+            return match["space_id"]
+    except Exception as e:
+        logger.warning("Could not resolve Genie Space name %s: %s", GENIE_SPACE_NAME, e)
+    return ""
+
+
+# Resolve both IDs once at startup
+_KA_TILE_ID: str = _resolve_ka_tile_id()
+_GENIE_SPACE_ID: str = _resolve_genie_space_id()
+
+_SUPERVISOR_TOOLS: list[dict[str, Any]] = []
+if _KA_TILE_ID:
+    _SUPERVISOR_TOOLS.append({
+        "type": "knowledge_assistant",
+        "knowledge_assistant": {
+            "knowledge_assistant_id": _KA_TILE_ID,
+            "description": (
+                "Answers questions about methodology, playbooks, onboarding procedures, "
+                "account information, case studies, and campaign guidelines from documents."
+            ),
+        },
+    })
+if _GENIE_SPACE_ID:
+    _SUPERVISOR_TOOLS.append({
+        "type": "genie_space",
+        "genie_space": {
+            "id": _GENIE_SPACE_ID,
+            "description": (
+                "Answers questions about campaign performance, financials, client data, "
+                "creative assets, and any question that requires querying structured data."
+            ),
+        },
+    })
+
+logger.info("Supervisor tools: %s", [t["type"] for t in _SUPERVISOR_TOOLS])
 
 
 def _build_trace_url(trace_id: str) -> str | None:
@@ -114,161 +138,29 @@ def _extract_question(request: ResponsesAgentRequest) -> str:
     return ""
 
 
-def _extract_tenant_id(request: ResponsesAgentRequest) -> str:
-    """Pull tenant_id from custom_inputs, e.g. {'tenant_id': 'TEN-001'}."""
-    try:
-        custom = request.custom_inputs or {}
-        return str(custom.get("tenant_id", "")).strip()
-    except Exception:
-        return ""
-
-
-def _sync_route(question: str) -> str:
-    """Call the LLM to classify the question. Returns 'genie' or 'ka'."""
-    from mlflow.deployments import get_deploy_client
-    client = get_deploy_client("databricks")
-    try:
-        resp = client.predict(
-            endpoint=LLM_ENDPOINT,
-            inputs={
-                "messages": [
-                    {"role": "system", "content": _ROUTING_PROMPT},
-                    {"role": "user", "content": question},
-                ],
-                "max_tokens": 5,
-                "temperature": 0,
-            },
-        )
-        label = resp["choices"][0]["message"]["content"].strip().lower()
-        return "genie" if "genie" in label else "ka"
-    except Exception as e:
-        logger.warning("Routing LLM call failed (%s), defaulting to ka", e)
-        return "ka"
-
-
-def _resolve_genie_space_id() -> str:
-    """Resolve GENIE_SPACE_NAME to a space ID via the Genie API."""
-    if not GENIE_SPACE_NAME:
-        return ""
-    try:
-        from databricks.sdk import WorkspaceClient
-        w = WorkspaceClient()
-        spaces = list(w.genie.list_spaces())
-        match = next((s for s in spaces if s.title == GENIE_SPACE_NAME), None)
-        if match:
-            return match.space_id
-    except Exception as e:
-        logger.warning("Could not resolve Genie Space name %s: %s", GENIE_SPACE_NAME, e)
-    return ""
-
-
-def _sync_call_genie(question: str, space_id: str, tenant_sp_app_id: str = "") -> str:
-    """Call the Genie Conversation API with optional tenant SP identity passthrough."""
-    import requests
-
-    if not space_id:
-        return "Genie Space is not configured. Please set GENIE_SPACE_NAME in app.yaml."
-
-    host = DATABRICKS_HOST if DATABRICKS_HOST.startswith("http") else f"https://{DATABRICKS_HOST}"
-    headers = {
-        "Authorization": f"Bearer {DATABRICKS_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    # Build request body — pass tenant SP as user_context so UC RLS fires correctly
-    body: dict[str, Any] = {"content": question}
-    if tenant_sp_app_id:
-        body["user_context"] = {"user_id": tenant_sp_app_id}
-
-    # Start conversation
-    try:
-        start = requests.post(
-            f"{host}/api/2.0/genie/spaces/{space_id}/start-conversation",
-            headers=headers,
-            json=body,
-            timeout=30,
-        )
-        start.raise_for_status()
-        data = start.json()
-        conv_id = data["conversation_id"]
-        msg_id  = data["message_id"]
-    except Exception as e:
-        return f"Failed to start Genie conversation: {e}"
-
-    # Poll for result (max ~60 seconds)
-    for _ in range(60):
-        time.sleep(1.0)
-        try:
-            poll = requests.get(
-                f"{host}/api/2.0/genie/spaces/{space_id}/conversations/{conv_id}/messages/{msg_id}",
-                headers=headers,
-                timeout=15,
-            )
-            poll.raise_for_status()
-            msg = poll.json()
-        except Exception as e:
-            return f"Genie polling error: {e}"
-
-        status = msg.get("status", "")
-        if status == "COMPLETED":
-            # Prefer the natural-language description from the query attachment
-            for att in msg.get("attachments", []):
-                q = att.get("query", {})
-                if q.get("description"):
-                    return q["description"]
-            return msg.get("content") or "Query returned no results."
-        elif status in ("FAILED", "CANCELLED"):
-            return f"Genie query failed: {msg.get('error', 'Unknown error')}"
-
-    return "Genie query timed out (60s)."
-
-
-def _sync_call_ka(question: str) -> str:
-    """Call the KA serving endpoint."""
-    if not KA_ENDPOINT_NAME:
-        return "KA_ENDPOINT_NAME is not configured. Please set it in app.yaml."
-    from mlflow.deployments import get_deploy_client
-    client = get_deploy_client("databricks")
-    response = client.predict(
-        endpoint=KA_ENDPOINT_NAME,
-        inputs={"input": [{"role": "user", "content": question}]},
+def _sync_call_supervisor(question: str) -> str:
+    """Call the Databricks Supervisor API (POST /mlflow/v1/responses)."""
+    from databricks_openai import DatabricksOpenAI
+    client = DatabricksOpenAI(use_ai_gateway=True)
+    response = client.responses.create(
+        model=LLM_ENDPOINT,
+        input=[{"type": "message", "role": "user", "content": question}],
+        tools=_SUPERVISOR_TOOLS,
+        stream=False,
     )
-    for item in response.get("output", []):
-        for part in item.get("content", []):
-            if part.get("type") == "output_text":
-                return part["text"]
-    return str(response)
+    return response.output_text or ""
 
 
-async def _route_and_answer(question: str, tenant_id: str) -> tuple[str, str]:
-    """Returns (answer, route) where route is 'ka' or 'genie'."""
+async def _answer(question: str) -> str:
     import asyncio
     loop = asyncio.get_event_loop()
-
-    route = await loop.run_in_executor(None, _sync_route, question)
-
-    if route == "genie":
-        space_id = await loop.run_in_executor(None, _resolve_genie_space_id)
-        tenant_sp_app_id = _TENANT_SP_MAP.get(tenant_id, "")
-        answer = await loop.run_in_executor(None, _sync_call_genie, question, space_id, tenant_sp_app_id)
-    else:
-        answer = await loop.run_in_executor(None, _sync_call_ka, question)
-
-    return answer, route
+    return await loop.run_in_executor(None, _sync_call_supervisor, question)
 
 
 @invoke()
 async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentResponse:
     question = _extract_question(request)
-    tenant_id = _extract_tenant_id(request)
-    answer, route = await _route_and_answer(question, tenant_id)
-
-    # Tag the MLflow trace with tenant_id for audit and analytics
-    if tenant_id:
-        try:
-            mlflow.update_current_trace(tags={"tenant_id": tenant_id})
-        except Exception:
-            pass
+    answer = await _answer(question)
 
     output_item = {
         "type": "message",
@@ -276,7 +168,7 @@ async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentRespon
         "content": [{"type": "output_text", "text": answer}],
     }
 
-    custom_outputs: dict[str, Any] = {"route": route, "tenant_id": tenant_id}
+    custom_outputs: dict[str, Any] = {}
     try:
         trace_id = _capture_trace_id()
         if trace_id:
@@ -297,14 +189,7 @@ async def stream_handler(
     request: ResponsesAgentRequest,
 ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
     question = _extract_question(request)
-    tenant_id = _extract_tenant_id(request)
-    answer, _ = await _route_and_answer(question, tenant_id)
-
-    if tenant_id:
-        try:
-            mlflow.update_current_trace(tags={"tenant_id": tenant_id})
-        except Exception:
-            pass
+    answer = await _answer(question)
 
     yield ResponsesAgentStreamEvent.model_validate({
         "type": "response.output_item.done",

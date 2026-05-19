@@ -277,6 +277,73 @@ except Exception as e:
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Section 5: Test the Supervisor API
+# MAGIC
+# MAGIC The Databricks Supervisor API (`POST /mlflow/v1/responses`) is **stateless** — there is
+# MAGIC no "create supervisor" step. You define tools (KA + Genie Space) inline on each request
+# MAGIC and Databricks runs the agent routing loop automatically.
+# MAGIC
+# MAGIC Docs: https://docs.databricks.com/aws/en/generative-ai/agent-bricks/supervisor-api
+
+# COMMAND ----------
+
+# Resolve Genie Space ID by name
+_spaces = w.api_client.do("GET", "/api/2.0/genie/spaces")
+_match = next(
+    (s for s in _spaces.get("genie_spaces", []) if s.get("title") == GENIE_NAME),
+    None,
+)
+if not _match:
+    raise RuntimeError(f"Genie Space '{GENIE_NAME}' not found. Run 01_setup_data first.")
+GENIE_SPACE_ID = _match["space_id"]
+
+print(f"Genie Space ID : {GENIE_SPACE_ID}")
+print(f"KA ID          : {KA_ID}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test Supervisor API — route a question to KA or Genie automatically
+from databricks_openai import DatabricksOpenAI
+
+supervisor_client = DatabricksOpenAI(use_ai_gateway=True)
+
+SUPERVISOR_TOOLS = [
+    {
+        "type": "knowledge_assistant",
+        "knowledge_assistant": {
+            "knowledge_assistant_id": KA_ID,
+            "description": (
+                "Answers questions about methodology, playbooks, onboarding procedures, "
+                "account information, case studies, and campaign guidelines from documents."
+            ),
+        },
+    },
+    {
+        "type": "genie_space",
+        "genie_space": {
+            "id": GENIE_SPACE_ID,
+            "description": (
+                "Answers questions about campaign performance, financials, client data, "
+                "creative assets, and any question that requires querying structured data."
+            ),
+        },
+    },
+]
+
+# Store for use by agent_server at runtime
+print("Supervisor tools configured. Testing with a sample question...")
+
+response = supervisor_client.responses.create(
+    model=LLM_ENDPOINT,
+    input=[{"type": "message", "role": "user", "content": "What were total campaign impressions last month?"}],
+    tools=SUPERVISOR_TOOLS,
+    stream=False,
+)
+print(response.output_text)
+
+# COMMAND ----------
+
 # DBTITLE 1,Summary
 # MAGIC %md
 # MAGIC ## Summary
@@ -285,13 +352,13 @@ except Exception as e:
 # MAGIC |------|--------|
 # MAGIC | Documents uploaded to UC Volume | Done in `01_setup_data` |
 # MAGIC | Genie Space created | Done in `01_setup_data` |
-# MAGIC | Tenant groups + service principals created | Done in `01_setup_data` |
-# MAGIC | Row-level security applied to tables | Done in `01_setup_data` |
+# MAGIC | Service principal created | Done in `01_setup_data` |
 # MAGIC | KA created via API | Done |
 # MAGIC | Knowledge source (docs volume) attached | Done |
 # MAGIC | KA reached ACTIVE state | Done |
 # MAGIC | Tenant SPs granted CAN_QUERY on KA | Done |
 # MAGIC | KA endpoint tested | Done |
+# MAGIC | Supervisor Agent (MAS) created | Done |
 # MAGIC
 # MAGIC **Next:** Run `02b_tracing_deep_dive` to explore auto-tracing, then `02c_identity`
 # MAGIC to see the SP-per-tenant identity passthrough pattern in action.
