@@ -36,8 +36,8 @@ def _default(env_var: str, fallback: str) -> str:
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog",             _default("WORKSHOP_CATALOG",           "users"),                                                  "1. UC Catalog (user-scoped resources)")
-dbutils.widgets.text("schema",              _default("WORKSHOP_SCHEMA",            _short_name),                                              "2. UC Schema (user-scoped resources)")
+dbutils.widgets.text("catalog",             _default("WORKSHOP_CATALOG",           "databricks_workshop"),                                    "1. UC Catalog (user-scoped resources)")
+dbutils.widgets.text("schema",              _default("WORKSHOP_SCHEMA",            "sample"),                                                 "2. UC Schema (user-scoped resources)")
 dbutils.widgets.text("volume",              _default("WORKSHOP_VOLUME",            f"{_short_name}_adtech_docs"),                             "3. UC Volume (user-scoped)")
 dbutils.widgets.text("data_catalog",        _default("DATA_CATALOG",               "databricks_workshop"),                                    "4. Shared data catalog")
 dbutils.widgets.text("data_schema",         _default("DATA_SCHEMA",                "sample"),                                                 "5. Shared data schema")
