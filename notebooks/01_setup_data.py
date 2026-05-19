@@ -77,79 +77,41 @@ for fqn in DATA_TABLES.values():
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 2. Create UC Groups
+# MAGIC ## 2. Create Service Principal
 # MAGIC
-# MAGIC One group per tenant + one admin group. Row-level security uses `IS_MEMBER()` against these.
+# MAGIC One SP with access to all data. Its `application_id` is saved to a lookup table
+# MAGIC used by the Supervisor Agent for identity passthrough to Genie.
 
 # COMMAND ----------
 
-for group_name in [*TENANT_GROUPS.values(), ADMIN_GROUP]:
-    try:
-        w.groups.create(display_name=group_name)
-        print(f"Created: {group_name}")
-    except Exception as e:
-        if "already exists" in str(e).lower() or "conflict" in str(e).lower():
-            print(f"Exists:  {group_name}")
+sp_display_name = f"{_short_name}-adtech-sp"
+
+try:
+    sp = w.service_principals.create(display_name=sp_display_name)
+    print(f"Created SP: {sp_display_name} (id={sp.id})")
+except Exception as e:
+    if "already exists" in str(e).lower() or "conflict" in str(e).lower():
+        sp = next(
+            (s for s in w.service_principals.list(filter=f'displayName eq "{sp_display_name}"')
+             if s.display_name == sp_display_name),
+            None,
+        )
+        if sp:
+            print(f"Exists:  {sp_display_name} (id={sp.id})")
         else:
-            print(f"WARN:    {group_name}: {e}")
+            raise RuntimeError(f"Could not create or find SP '{sp_display_name}': {e}")
+    else:
+        raise
 
-# COMMAND ----------
+tenant_sp_records = [{
+    "tenant_id": _short_name,
+    "sp_id": str(sp.id),
+    "application_id": str(sp.application_id),
+    "display_name": sp_display_name,
+    "group_name": "",
+}]
 
-# MAGIC %md
-# MAGIC ## 3. Create Tenant Service Principals
-# MAGIC
-# MAGIC One Databricks SP per tenant. Each SP is added to its tenant group and its `application_id`
-# MAGIC is saved to a lookup table used by the Supervisor Agent for identity passthrough to Genie.
-
-# COMMAND ----------
-
-tenant_sp_records = []
-
-for tenant_id, group_name in TENANT_GROUPS.items():
-    sp_display_name = f"{_short_name}-{tenant_id.lower().replace('-', '')}-sp"
-
-    # Create or find the SP
-    try:
-        sp = w.service_principals.create(display_name=sp_display_name)
-        print(f"Created SP: {sp_display_name} (id={sp.id})")
-    except Exception as e:
-        if "already exists" in str(e).lower() or "conflict" in str(e).lower():
-            sp = next(
-                (s for s in w.service_principals.list(filter=f'displayName eq "{sp_display_name}"')
-                 if s.display_name == sp_display_name),
-                None,
-            )
-            if sp:
-                print(f"Exists:  {sp_display_name} (id={sp.id})")
-            else:
-                print(f"WARN: Could not create or find {sp_display_name}: {e}")
-                continue
-        else:
-            print(f"WARN: {sp_display_name}: {e}")
-            continue
-
-    # Add SP to its tenant group
-    try:
-        group_list = list(w.groups.list(filter=f'displayName eq "{group_name}"'))
-        group = next((g for g in group_list if g.display_name == group_name), None)
-        if group:
-            w.groups.patch(
-                id=group.id,
-                operations=[{"op": "add", "path": "members", "value": [{"value": str(sp.id)}]}],
-            )
-            print(f"  → added to {group_name}")
-    except Exception as e:
-        print(f"  WARN: Could not add to group: {e}")
-
-    tenant_sp_records.append({
-        "tenant_id": tenant_id,
-        "sp_id": str(sp.id),
-        "application_id": str(sp.application_id),
-        "display_name": sp_display_name,
-        "group_name": group_name,
-    })
-
-print(f"\n{len(tenant_sp_records)} tenant SPs ready.")
+print(f"\nSP ready: application_id={sp.application_id}")
 
 # Save lookup table for the Supervisor Agent
 sp_df = spark.createDataFrame(tenant_sp_records)
@@ -165,8 +127,8 @@ sp_df.show(truncate=60)
 # MAGIC | Resource | Value |
 # MAGIC |---|---|
 # MAGIC | Genie Space | `{GENIE_NAME}` (id printed above) |
-# MAGIC | UC Groups | 5 tenant groups + 1 admin group |
-# MAGIC | Tenant SPs | 5 SPs saved to `{TENANT_SPS_TABLE_FQN}` |
+# MAGIC | Service Principal | `{sp_display_name}` — full access to all client data |
+# MAGIC | SP lookup table | `{TENANT_SPS_TABLE_FQN}` |
 # MAGIC
 # MAGIC **Next:** Run `02a_setup_agents` to create the Knowledge Assistant.
 
