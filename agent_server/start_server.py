@@ -77,34 +77,34 @@ def _load_sample_questions() -> list[dict]:
 # Fallback embedded samples — always shown if the volume is unreachable.
 _BUILTIN_SAMPLE_QUESTIONS = [
     {
-        "label": "Affinity Loop types",
-        "qa_id": "QA-002",
-        "question": "What is an Affinity Loop and what are the different types?",
-        "category": "methodology",
+        "label": "AutoNova vs FreshGlow brand positioning",
+        "qa_id": "QA-001",
+        "question": "What are the key brand positioning differences between AutoNova and FreshGlow based on their 2025 brand guidelines?",
+        "category": "unstructured",
     },
     {
         "label": "Opportunities by tenant",
-        "qa_id": "QA-010",
-        "question": "How many opportunities are there grouped by tenant name?",
-        "category": "data_query",
+        "qa_id": "QA-002",
+        "question": "Provide a summary count of all opportunities grouped by tenant name or tenant ID.",
+        "category": "structured",
     },
     {
-        "label": "AT&T campaign performance",
-        "qa_id": "QA-007",
-        "question": "What performance lift did Affinity Hub achieve for AT&T Connected Car activations?",
-        "category": "performance",
+        "label": "AutoNova Spring Launch performance",
+        "qa_id": "QA-003",
+        "question": "How did the AutoNova Spring Launch campaign perform against its brief objectives, comparing the campaign brief to the post-campaign report?",
+        "category": "unstructured",
     },
     {
         "label": "Incomplete opportunities",
-        "qa_id": "QA-012",
-        "question": "Which existing opportunities should I review first? Which are incomplete?",
-        "category": "data_query",
+        "qa_id": "QA-004",
+        "question": "Which existing opportunities should I review first? Which are incomplete and need attention?",
+        "category": "structured",
     },
     {
-        "label": "New client requirements",
-        "qa_id": "QA-004",
-        "question": "What documentation is required from a new client before a Statement of Work can be issued?",
-        "category": "onboarding",
+        "label": "2026 consumer trends",
+        "qa_id": "QA-005",
+        "question": "What consumer trends from the 2026 Global Consumer Predictions report could inform future campaign strategies for brands like QuickBite or StreamPlay?",
+        "category": "unstructured",
     },
 ]
 

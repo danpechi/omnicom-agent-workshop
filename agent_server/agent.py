@@ -75,15 +75,33 @@ def _extract_question(request: ResponsesAgentRequest) -> str:
     return ""
 
 
+def _get_token() -> str:
+    token = os.getenv("DATABRICKS_TOKEN", "")
+    if not token:
+        try:
+            from databricks.sdk import WorkspaceClient
+            token = WorkspaceClient().config.token or ""
+        except Exception:
+            pass
+    return token
+
+
 def _sync_call_supervisor(question: str, endpoint: str) -> str:
     """Call the Supervisor Agent endpoint directly via the Responses API."""
-    from databricks_openai import DatabricksOpenAI
-    client = DatabricksOpenAI()
+    from openai import OpenAI
+    client = OpenAI(
+        api_key=_get_token(),
+        base_url=f"{DATABRICKS_HOST}/serving-endpoints",
+    )
     response = client.responses.create(
         model=endpoint,
         input=[{"role": "user", "content": question}],
     )
-    return response.output_text or ""
+    return " ".join(
+        getattr(content, "text", "")
+        for output in response.output
+        for content in getattr(output, "content", [])
+    )
 
 
 async def _answer(question: str, endpoint: str) -> str:

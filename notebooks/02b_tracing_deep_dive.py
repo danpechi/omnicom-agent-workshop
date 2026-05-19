@@ -70,11 +70,11 @@ print(f"KA endpoint: {KA_ENDPOINT}")
 
 # DBTITLE 1,5 synthetic AdTech questions
 TEST_QUESTIONS = [
-    "What is the Affinity Loop methodology and how does it drive campaign personalization?",
-    "What documentation must a new client provide before a Statement of Work can be issued?",
-    "How did the AT&T Connected Car campaign use affinity data to improve activation rates?",
-    "What are the required steps for launching a new campaign in the Affinity Hub platform?",
-    "How should campaign performance metrics be reviewed to identify optimization opportunities?",
+    "What are the key brand positioning differences between AutoNova and FreshGlow based on their 2025 brand guidelines?",
+    "How did the AutoNova Spring Launch campaign perform against its brief objectives, comparing the campaign brief to the post-campaign report?",
+    "What media channels and budget allocations are outlined in the AutoNova Q2 2025 media plan, and how do they compare to HealthFirst's Q4 2024 plan?",
+    "What were the main findings from the Hilton Value Segmentation research, and how do the qualitative and quantitative reports complement each other?",
+    "What consumer trends from the 2026 Global Consumer Predictions report could inform future campaign strategies for brands like QuickBite or StreamPlay?",
 ]
 
 # COMMAND ----------
@@ -221,39 +221,43 @@ from mlflow.tracing.constant import SpanAttributeKey
 # In a real setup these would come from a curated eval_dataset.json in the volume.
 EVAL_DATASET = [
     {
-        "question": "What is the Affinity Loop methodology and how does it drive campaign personalization?",
+        "question": "What are the key brand positioning differences between AutoNova and FreshGlow based on their 2025 brand guidelines?",
         "guidelines": [
-            "The answer should explain what the Affinity Loop is and how it uses audience data to personalize campaigns.",
-            "The answer should mention the iterative feedback mechanism between campaign signals and audience targeting.",
+            "The answer should compare the brand positioning of AutoNova and FreshGlow directly.",
+            "The answer should reference specific elements from their 2025 brand guidelines such as tone, target audience, or value proposition.",
+            "The answer should highlight meaningful differences rather than generic brand attributes.",
         ],
     },
     {
-        "question": "What documentation must a new client provide before a Statement of Work can be issued?",
+        "question": "How did the AutoNova Spring Launch campaign perform against its brief objectives, comparing the campaign brief to the post-campaign report?",
         "guidelines": [
-            "The answer should list the required documents (e.g. brief, budget approval, legal sign-off).",
-            "The answer should specify the order or timeline in which documents are submitted.",
+            "The answer should reference both the campaign brief and the post-campaign report.",
+            "The answer should compare planned objectives to actual results (e.g. reach, engagement, conversion).",
+            "The answer should note where the campaign met, exceeded, or fell short of its goals.",
         ],
     },
     {
-        "question": "How did the AT&T Connected Car campaign use affinity data to improve activation rates?",
+        "question": "What media channels and budget allocations are outlined in the AutoNova Q2 2025 media plan, and how do they compare to HealthFirst's Q4 2024 plan?",
         "guidelines": [
-            "The answer should reference the AT&T case study specifically.",
-            "The answer should describe the performance lift or improvement achieved.",
-            "The answer should explain how affinity audience segments were used in targeting.",
+            "The answer should list the media channels in the AutoNova Q2 2025 plan with budget figures or percentages.",
+            "The answer should reference HealthFirst's Q4 2024 plan for comparison.",
+            "The answer should identify notable differences in channel mix or spend allocation between the two plans.",
         ],
     },
     {
-        "question": "What are the required steps for launching a new campaign in the Affinity Hub platform?",
+        "question": "What were the main findings from the Hilton Value Segmentation research, and how do the qualitative and quantitative reports complement each other?",
         "guidelines": [
-            "The answer should outline the launch checklist or steps in order.",
-            "The answer should mention data ingestion, audience setup, and creative approval steps.",
+            "The answer should summarize the key findings from the Hilton Value Segmentation research.",
+            "The answer should distinguish between findings from the qualitative and quantitative reports.",
+            "The answer should explain how the two methodologies reinforce or add nuance to each other.",
         ],
     },
     {
-        "question": "How should campaign performance metrics be reviewed to identify optimization opportunities?",
+        "question": "What consumer trends from the 2026 Global Consumer Predictions report could inform future campaign strategies for brands like QuickBite or StreamPlay?",
         "guidelines": [
-            "The answer should describe which metrics to review (e.g. CTR, conversion rate, ROAS).",
-            "The answer should explain the review cadence or process for identifying underperformers.",
+            "The answer should reference specific trends from the 2026 Global Consumer Predictions report.",
+            "The answer should connect those trends to actionable implications for QuickBite or StreamPlay.",
+            "The answer should be forward-looking and strategy-oriented rather than purely descriptive.",
         ],
     },
 ]
