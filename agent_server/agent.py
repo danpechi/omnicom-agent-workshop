@@ -76,14 +76,20 @@ def _extract_question(request: ResponsesAgentRequest) -> str:
 
 
 def _get_token() -> str:
-    token = os.getenv("DATABRICKS_TOKEN", "")
-    if not token:
-        try:
-            from databricks.sdk import WorkspaceClient
-            token = WorkspaceClient().config.token or ""
-        except Exception:
-            pass
-    return token
+    """Get a bearer token that works for both PAT and OAuth/workload identity auth."""
+    try:
+        from databricks.sdk import WorkspaceClient
+        w = WorkspaceClient()
+        headers: dict = {}
+        w.config.authenticate(headers)
+        auth = headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[7:]
+        # fallback to explicit token if set
+        return w.config.token or os.getenv("DATABRICKS_TOKEN", "")
+    except Exception as e:
+        logger.warning("Could not retrieve Databricks token: %s", e)
+        return os.getenv("DATABRICKS_TOKEN", "")
 
 
 def _sync_call_supervisor(question: str, endpoint: str) -> str:
