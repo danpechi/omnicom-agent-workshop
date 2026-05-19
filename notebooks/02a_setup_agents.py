@@ -295,124 +295,6 @@ except Exception as e:
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Section 5: Create Supervisor Agent
-# MAGIC
-# MAGIC Uses the Databricks SDK `SupervisorAgentsAPI` to create a persistent Supervisor Agent
-# MAGIC that routes between the KA (docs) and Genie Space (structured data).
-# MAGIC
-# MAGIC SDK docs: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/supervisoragents/supervisor_agents.html
-
-# COMMAND ----------
-
-# Resolve Genie Space ID by name
-_spaces = w.api_client.do("GET", "/api/2.0/genie/spaces")
-_match = next(
-    (s for s in _spaces.get("genie_spaces", []) if s.get("title") == GENIE_NAME),
-    None,
-)
-if not _match:
-    raise RuntimeError(f"Genie Space '{GENIE_NAME}' not found. Run 01_setup_data first.")
-GENIE_SPACE_ID = _match["space_id"]
-
-print(f"Genie Space ID : {GENIE_SPACE_ID}")
-print(f"KA ID          : {KA_ID}")
-
-# COMMAND ----------
-
-# DBTITLE 1,Create Supervisor Agent via SDK
-supervisor_name = f"{_short_name}-adtech-supervisor"
-
-# Check if supervisor already exists
-_existing_sas = w.api_client.do("GET", "/api/2.1/supervisor-agents").get("supervisor_agents", [])
-_existing_sa = next((s for s in _existing_sas if s.get("display_name") == supervisor_name), None)
-
-if _existing_sa:
-    SUPERVISOR_NAME = _existing_sa["name"]
-    print(f"Supervisor Agent already exists — skipping creation.")
-else:
-    _sa = w.api_client.do(
-        "POST",
-        "/api/2.1/supervisor-agents",
-        body={
-            "display_name": supervisor_name,
-            "description": (
-                "Omnicom Affinity Hub Supervisor Agent. Routes AdTech questions to the "
-                "Knowledge Assistant (methodology, playbooks, docs) or Genie Space "
-                "(campaign metrics, financials, structured data)."
-            ),
-        },
-    )
-    SUPERVISOR_NAME = _sa["name"]
-    print(f"Created Supervisor Agent: {supervisor_name}")
-
-print(f"  resource name: {SUPERVISOR_NAME}")
-
-# Check existing tools
-_existing_tools = w.api_client.do(
-    "GET", f"/api/2.1/{SUPERVISOR_NAME}/tools"
-).get("tools", [])
-_existing_tool_ids = {t.get("tool_id") for t in _existing_tools}
-
-# Add Knowledge Assistant tool
-if "ka_tool" not in _existing_tool_ids:
-    w.api_client.do(
-        "POST",
-        f"/api/2.1/{SUPERVISOR_NAME}/tools",
-        query={"tool_id": "ka_tool"},
-        body={
-            "tool_type": "knowledge_assistant",
-            "description": (
-                "Answers questions about methodology, playbooks, onboarding procedures, "
-                "account information, case studies, and campaign guidelines from documents."
-            ),
-            "knowledge_assistant": {
-                "knowledge_assistant_id": KA_ID,
-            },
-        },
-    )
-    print("  + Added Knowledge Assistant tool")
-else:
-    print("  ~ Knowledge Assistant tool already exists")
-
-# Add Genie Space tool
-if "genie_tool" not in _existing_tool_ids:
-    w.api_client.do(
-        "POST",
-        f"/api/2.1/{SUPERVISOR_NAME}/tools",
-        query={"tool_id": "genie_tool"},
-        body={
-            "tool_type": "genie_space",
-            "description": (
-                "Answers questions about campaign performance, financials, client data, "
-                "creative assets, and any question that requires querying structured data."
-            ),
-            "genie_space": {
-                "id": GENIE_SPACE_ID,
-            },
-        },
-    )
-    print("  + Added Genie Space tool")
-else:
-    print("  ~ Genie Space tool already exists")
-
-# COMMAND ----------
-
-# DBTITLE 1,Test Supervisor Agent
-from databricks_openai import DatabricksOpenAI
-
-supervisor_client = DatabricksOpenAI(use_ai_gateway=True)
-
-response = supervisor_client.responses.create(
-    model=LLM_ENDPOINT,
-    input=[{"type": "message", "role": "user", "content": "What were total campaign impressions last month?"}],
-    tools=[{"type": "supervisor_agent", "supervisor_agent": {"name": SUPERVISOR_NAME}}],
-    stream=False,
-)
-print(response.output_text)
-
-# COMMAND ----------
-
 # DBTITLE 1,Summary
 # MAGIC %md
 # MAGIC ## Summary
@@ -427,7 +309,8 @@ print(response.output_text)
 # MAGIC | KA reached ACTIVE state | Done |
 # MAGIC | Tenant SPs granted CAN_QUERY on KA | Done |
 # MAGIC | KA endpoint tested | Done |
-# MAGIC | Supervisor Agent (MAS) created | Done |
 # MAGIC
-# MAGIC **Next:** Run `02b_tracing_deep_dive` to explore auto-tracing, then `02c_identity`
-# MAGIC to see the SP-per-tenant identity passthrough pattern in action.
+# MAGIC **Note your KA ID above** — you will need it in `02b_setup_supervisor`.
+# MAGIC
+# MAGIC **Next:** Run `02b_setup_supervisor` to create the Supervisor Agent, then
+# MAGIC `02c_tracing_deep_dive` to explore traces and evaluation.
