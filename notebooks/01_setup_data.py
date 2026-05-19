@@ -46,33 +46,28 @@ if not warehouses:
 warehouse_id = warehouses[0].id
 print(f"Using warehouse: {warehouses[0].name} ({warehouse_id})")
 
-# Look up an existing Genie Space by name.
-# NOTE: The Genie Space creation REST API requires an internal 'serialized_space'
-# payload that is not publicly documented. Create the space via:
-#   - Databricks UI: New > Genie Space, then paste the space_id below, OR
-#   - Claude Code MCP tool: create_or_update_genie(display_name=GENIE_NAME, table_identifiers=[...])
-# Once created, this cell finds it automatically by matching the title.
+# Check if Genie Space already exists, create if not.
+# Genie spaces are managed via the /api/2.0/data-rooms/ endpoint.
 _spaces_resp = w.api_client.do("GET", "/api/2.0/genie/spaces")
 existing_spaces = _spaces_resp.get("genie_spaces", []) if isinstance(_spaces_resp, dict) else []
 existing = next((s for s in existing_spaces if s.get("title") == GENIE_NAME), None)
 
 if existing:
     GENIE_SPACE_ID = existing["space_id"]
-    print(f"Found Genie Space: {GENIE_NAME} (id={GENIE_SPACE_ID})")
+    print(f"Genie Space already exists: {GENIE_NAME} (id={GENIE_SPACE_ID})")
 else:
-    table_list = "\n".join(f"  - {t}" for t in DATA_TABLES.values())
-    raise RuntimeError(
-        f"Genie Space '{GENIE_NAME}' not found.\n\n"
-        f"Create it first, then re-run this cell:\n\n"
-        f"Option A — Databricks UI:\n"
-        f"  Go to New > Genie Space, set the title to '{GENIE_NAME}',\n"
-        f"  add these tables, and connect warehouse '{warehouse_id}':\n{table_list}\n\n"
-        f"Option B — Claude Code MCP (from your local terminal):\n"
-        f"  create_or_update_genie(\n"
-        f"    display_name='{GENIE_NAME}',\n"
-        f"    table_identifiers={list(DATA_TABLES.values())}\n"
-        f"  )\n"
+    space = w.api_client.do(
+        "POST",
+        "/api/2.0/data-rooms/",
+        body={
+            "display_name": GENIE_NAME,
+            "description": f"Omnicom Affinity Hub — AdTech structured data for {_short_name}",
+            "warehouse_id": warehouse_id,
+            "table_identifiers": list(DATA_TABLES.values()),
+        },
     )
+    GENIE_SPACE_ID = space.get("space_id") or space.get("id")
+    print(f"Created Genie Space: {GENIE_NAME} (id={GENIE_SPACE_ID})")
 
 print(f"\nGenie Space ID: {GENIE_SPACE_ID}")
 print(f"Tables added:")
